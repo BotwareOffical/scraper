@@ -18,7 +18,7 @@ export interface ProductGridProps {
 }
 
 export interface SearchBarProps {
-  onSearch: (terms: string) => Promise<void>
+  onSearch: (terms: Array<{term: string, minPrice: string, maxPrice: string}>) => Promise<void>
 }
 
 export interface SearchResponse {

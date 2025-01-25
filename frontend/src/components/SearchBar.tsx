@@ -7,7 +7,30 @@ const SearchBar = ({ onSearch }: SearchBarProps) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSearch(searchTerms)
+    
+    // Parse search terms with optional price ranges
+    // Format: "keyword1:min-max, keyword2:min-max"
+    const parsedSearches = searchTerms.split(',').map(term => {
+      const trimmedTerm = term.trim()
+      const priceMatch = trimmedTerm.match(/:(\d+)?-?(\d+)?$/)
+      
+      if (priceMatch) {
+        const keyword = trimmedTerm.replace(priceMatch[0], '').trim()
+        return {
+          term: keyword,
+          minPrice: priceMatch[1] || '',
+          maxPrice: priceMatch[2] || ''
+        }
+      }
+      
+      return {
+        term: trimmedTerm,
+        minPrice: '',
+        maxPrice: ''
+      }
+    })
+
+    onSearch(parsedSearches)
   }
 
   return (
@@ -16,7 +39,7 @@ const SearchBar = ({ onSearch }: SearchBarProps) => {
         type="text"
         value={searchTerms}
         onChange={(e) => setSearchTerms(e.target.value)}
-        placeholder="Enter search terms (comma-separated)"
+        placeholder="Enter search terms (e.g., gucci:500-1000, shoes:200)"
         className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
       <button

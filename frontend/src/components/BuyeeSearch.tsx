@@ -1,4 +1,3 @@
-// src/components/BuyeeSearch.tsx
 import { useState } from 'react'
 import SearchBar from './SearchBar'
 import ProductGrid from './ProductGrid'
@@ -9,7 +8,7 @@ const BuyeeSearch = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleSearch = async (searchTerms: string) => {
+  const handleSearch = async (searchTerms: Array<{term: string, minPrice: string, maxPrice: string}>) => {
     setIsLoading(true)
     setError(null)
 
@@ -24,7 +23,7 @@ const BuyeeSearch = () => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          terms: searchTerms.split(',').map(term => term.trim()).filter(Boolean)
+          terms: searchTerms
         })
       })
 

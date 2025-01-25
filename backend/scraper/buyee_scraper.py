@@ -89,58 +89,45 @@ class BuyeeScraper:
             finally:
                 browser_context.close()
 
-    def scrape_search_results(self, search_term):
+    def scrape_search_results(self, term, min_price='', max_price=''):
         with sync_playwright() as p:
             browser_context = self._setup_browser(p)
             page = browser_context.new_page()
 
             try:
-                # Add random delay between 1-3 seconds
-                time.sleep(random.uniform(1, 3))
+                search_url = f"{self.base_url}/item/search/query/{term}"
+                url_params = []
                 
-                encoded_term = search_term.replace(' ', '+')
-                search_url = f"{self.base_url}/item/search/query/{encoded_term}"
-                logger.info(f"Navigating to search URL: {search_url}")
+                if min_price:
+                    url_params.append(f"aucminprice={min_price}")
+                if max_price:
+                    url_params.append(f"aucmaxprice={max_price}")
                 
-                # Add random mouse movements and scrolls
+                if url_params:
+                    search_url += "?" + "&".join(url_params)
+                    
+                logger.info(f"Navigating to: {search_url}")
                 page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
-                page.mouse.move(random.randint(0, 800), random.randint(0, 600))
                 
-                # Wait for the search results to load
-                page.wait_for_selector('.auctionSearchResult', timeout=10000)
-
-                # Get all product items
-                products = []
+                # Rest of the scraping code remains the same
                 items = page.query_selector_all('.itemCard')
+                products = []
                 
                 for item in items:
                     try:
-                        # Basic product info
                         title_elem = item.query_selector('.itemCard__itemName a')
                         title = title_elem.inner_text() if title_elem else ""
                         link = title_elem.get_attribute('href') if title_elem else ""
                         
-                        # Price info
                         price_elem = item.query_selector('.g-price')
                         price = price_elem.inner_text() if price_elem else ""
                         
-                        # Time remaining
                         time_elem = item.query_selector('.g-text--attention')
                         time_remaining = time_elem.inner_text() if time_elem else ""
                         
-                        # Get thumbnail image
                         img_elem = item.query_selector('.g-thumbnail__image')
                         thumbnail = img_elem.get_attribute('src') if img_elem else ""
                         
-                        # Get number of bids
-                        bids_elem = item.query_selector('.itemCard__infoItem:nth-child(2) .g-text')
-                        num_bids = bids_elem.inner_text() if bids_elem else "0"
-                        
-                        # Get seller info
-                        seller_elem = item.query_selector('.auctionSearchResult__seller a')
-                        seller = seller_elem.inner_text() if seller_elem else ""
-
-                        # Format the full URL if it's relative
                         if link and not link.startswith('http'):
                             link = f"{self.base_url}{link}"
 
@@ -149,24 +136,19 @@ class BuyeeScraper:
                             "price": price,
                             "time_remaining": time_remaining,
                             "url": link,
-                            "thumbnail": thumbnail,
-                            "num_bids": num_bids,
-                            "seller": seller,
-                            "images": [thumbnail] # Initialize with thumbnail, full images can be fetched later
+                            "images": [thumbnail]
                         }
-                        
                         products.append(product)
 
                     except Exception as e:
                         logger.error(f"Error processing search result item: {e}")
                         continue
 
-                logger.info(f"Found {len(products)} products")
                 return products
 
             except Exception as e:
                 logger.error(f"Error during search scraping: {e}")
                 return []
-                
+            
             finally:
                 browser_context.close()

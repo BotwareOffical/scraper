@@ -50,16 +50,14 @@ def place_bid():
 @app.route('/search', methods=['POST', 'OPTIONS'])
 def search():
     if request.method == 'OPTIONS':
-        # Handle preflight request
         response = jsonify({'message': 'OK'})
         response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
         return response
 
-    try:  # Fixed indentation here
+    try:
         data = request.json
         logger.info(f"Received search request with data: {data}")
-        
         search_terms = data.get('terms', [])
         
         if not search_terms:
@@ -67,19 +65,16 @@ def search():
             return jsonify({"error": "No search terms provided"}), 400
         
         results = []
-        for term in search_terms:
-            logger.info(f"Searching for term: {term}")
-            try:
-                # Add delay between searches to avoid rate limiting
-                time.sleep(2)  # Add this import: import time
-                term_results = scraper.scrape_search_results(term)
-                logger.info(f"Found {len(term_results)} results for term: {term}")
-                results.extend(term_results)
-            except Exception as term_error:
-                logger.error(f"Error searching for term '{term}': {str(term_error)}")
-                raise
+        for search_term in search_terms:
+            term = search_term.get('term', '')
+            min_price = search_term.get('minPrice', '')
+            max_price = search_term.get('maxPrice', '')
+            
+            term_results = scraper.scrape_search_results(term, min_price, max_price)
+            logger.info(f"Found {len(term_results)} results for term: {term}")
+            results.extend(term_results)
+            time.sleep(2)  # Avoid rate limiting
         
-        logger.info(f"Search completed successfully with {len(results)} total results")
         return jsonify({
             "success": True,
             "results": results,
@@ -92,6 +87,6 @@ def search():
             "success": False,
             "error": f"Search failed: {str(e)}"
         }), 500
-
+        
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)
