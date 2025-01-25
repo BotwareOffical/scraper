@@ -3,8 +3,6 @@ from flask_cors import CORS
 from scraper.buyee_scraper import BuyeeScraper
 import logging
 import time
-import random
-
 
 app = Flask(__name__)
 
@@ -27,21 +25,35 @@ scraper = BuyeeScraper()
 @app.route('/place-bid', methods=['POST'])
 def place_bid():
     try:
+        # Log the entire request data for debugging
+        logger.info(f"Received bid request data: {request.json}")
+        
         data = request.json
-        product_id = data.get('productId')
+        product_url = data.get('productId')  # Full product URL
         bid_amount = data.get('amount')
         
-        if not product_id or not bid_amount:
+        # Log extracted details
+        logger.info(f"Bid Details:")
+        logger.info(f"Product URL: {product_url}")
+        logger.info(f"Bid Amount: {bid_amount}")
+        
+        if not product_url or not bid_amount:
+            logger.warning("Missing product URL or bid amount")
             return jsonify({
                 "success": False,
-                "message": "Product ID and bid amount are required"
+                "message": "Product URL and bid amount are required"
             }), 400
-            
-        result = scraper.place_bid(product_id, bid_amount)
+        
+        # Placeholder for actual bid placement logic
+        result = {
+            "success": True,
+            "message": f"Bid of {bid_amount} placed on {product_url}"
+        }
+        
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Bid error: {e}")
+        logger.error(f"Bid placement error: {e}", exc_info=True)
         return jsonify({
             "success": False,
             "message": str(e)
@@ -70,6 +82,7 @@ def search():
             min_price = search_term.get('minPrice', '')
             max_price = search_term.get('maxPrice', '')
             
+            # Basic search first
             term_results = scraper.scrape_search_results(term, min_price, max_price)
             logger.info(f"Found {len(term_results)} results for term: {term}")
             results.extend(term_results)

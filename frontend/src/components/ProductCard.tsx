@@ -1,84 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
 import { ProductCardProps } from '..';
+import ProductImageCarousel from './ProductImageCarousel';
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
-  const [loadedImages, setLoadedImages] = useState<string[]>([]);
   const [bidAmount, setBidAmount] = useState<string>('');
   const [isBidding, setIsBidding] = useState<boolean>(false);
   const [bidError, setBidError] = useState<string | null>(null);
-
-  // Touch handling for image swiping
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStart(e.targetTouches[0].clientX);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStart) return;
-    
-    const currentTouch = e.targetTouches[0].clientX;
-    const diff = touchStart - currentTouch;
-
-    // If swipe is significant enough, change image and reset touch
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) {
-        nextImage();
-      } else {
-        prevImage();
-      }
-      setTouchStart(null);
-    }
-  };
-
-  // Image preloading
-  useEffect(() => {
-    if (product.images.length > 0) {
-      const preloadImages = async () => {
-        const loadPromises = product.images.map(src => {
-          return new Promise<string>((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(src);
-            img.onerror = reject;
-            img.src = src;
-          });
-        });
-
-        try {
-          const loadedSrcs = await Promise.all(loadPromises);
-          setLoadedImages(loadedSrcs);
-        } catch (error) {
-          console.error('Failed to load some images:', error);
-        }
-      };
-
-      preloadImages();
-    }
-  }, [product.images]);
-
-  const nextImage = () => {
-    setCurrentImageIndex(prev => 
-      prev === (product.images.length - 1) ? 0 : prev + 1
-    );
-  };
-
-  const prevImage = () => {
-    setCurrentImageIndex(prev => 
-      prev === 0 ? product.images.length - 1 : prev - 1
-    );
-  };
 
   const handleBid = async () => {
     if (!bidAmount || isNaN(Number(bidAmount))) {
       setBidError('Please enter a valid bid amount');
       return;
     }
-
+  
     setIsBidding(true);
     setBidError(null);
-
+  
     try {
       const response = await fetch('/api/place-bid', {
         method: 'POST',
@@ -86,16 +23,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          productId: product.url.split('/').pop(),
+          productId: product.url, // Send full product URL
           amount: Number(bidAmount)
         })
       });
-
+  
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.message || 'Failed to place bid');
       }
-
+  
       setBidAmount(''); // Clear bid amount on success
     } catch (error) {
       setBidError(error instanceof Error ? error.message : 'Failed to place bid');
@@ -106,52 +43,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   return (
     <div className="bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-      <div 
-        className="aspect-square relative group"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-      >
-        {loadedImages.length > 0 ? (
-          <img
-            src={loadedImages[currentImageIndex]}
-            alt={`${product.title} - Image ${currentImageIndex + 1}`}
-            className="w-full h-full object-cover"
-            loading={currentImageIndex === 0 ? "eager" : "lazy"}
-          />
-        ) : (
-          <div className="w-full h-full bg-gray-200 animate-pulse" />
-        )}
-
-        {product.images.length > 1 && (
-          <>
-            <button
-              onClick={prevImage}
-              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              type="button"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={nextImage}
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              type="button"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-              {product.images.map((_, index) => (
-                <div
-                  key={index}
-                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                    index === currentImageIndex ? 'bg-white' : 'bg-white/50'
-                  }`}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      <ProductImageCarousel images={product.images} />
 
       <div className="p-4">
         <h3 className="font-semibold text-lg mb-2 line-clamp-2">{product.title}</h3>

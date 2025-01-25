@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 
+buyee_search_results.html
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

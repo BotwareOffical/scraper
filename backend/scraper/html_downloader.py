@@ -85,6 +85,6 @@ def download_html(url, output_file):
             browser.close()
 
 if __name__ == "__main__":
-    url = "https://buyee.jp/item/search/query/gucci?translationType=98"
+    url = "https://buyee.jp/item/yahoo/auction/l1117007157?conversionType=YahooAuction_DirectSearch"
     output_file = "buyee_search_results.html"
     download_html(url, output_file)
