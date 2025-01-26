@@ -33,9 +33,9 @@ class BuyeeScraper:
             logger.error(f"Error setting up browser: {e}")
             raise
 
-    def scrape_search_results(self, term, min_price='', max_price='', page=1, detailed=True):
+    def scrape_search_results(self, term, min_price='', max_price='', max_pages=None, detailed=True):
         with sync_playwright() as p:
-            try:
+            try:a
                 browser_context = self._setup_browser(p)
                 browser_page = browser_context.new_page()
 
@@ -44,23 +44,41 @@ class BuyeeScraper:
                 params = []
                 if min_price: params.append(f"aucminprice={min_price}")
                 if max_price: params.append(f"aucmaxprice={max_price}")
-                if page > 1: params.append(f"page={page}")
                 params.append("translationType=98")
                 if params: search_url += "?" + "&".join(params)
 
                 logger.info(f"Searching with URL: {search_url}")
                 browser_page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
                 
-                # Wait for items to be present
-                browser_page.wait_for_selector('.itemCard', timeout=10000)
-
-                products = []
-                items = browser_page.query_selector_all('.itemCard')
-                logger.info(f"Found {len(items)} items in search results")
+                # Detect total pages
+                pagination_elem = browser_page.query_selector('.pagination')
+                total_pages = 1
+                if pagination_elem:
+                    page_links = pagination_elem.query_selector_all('a')
+                    if page_links:
+                        page_numbers = [int(link.inner_text()) for link in page_links if link.inner_text().isdigit()]
+                        total_pages = max(page_numbers) if page_numbers else 1
                 
+                # Limit pages if max_pages is specified
+                total_pages = min(total_pages, max_pages) if max_pages else total_pages
+
+                logger.info(f"Total pages detected: {total_pages}")
+                
+                products = []
+                
+                # Concurrent page scraping
+                for page in range(1, total_pages + 1):
+                    page_url = f"{search_url}&page={page}"
+                    logger.info(f"Scraping page {page}: {page_url}")
+                    
+                    page_context = browser_context.new_page()
+                    page_context.goto(page_url, wait_until='domcontentloaded', timeout=30000)
+                    
+                    items = page_context.query_selector_all('.itemCard')
+                    logger.info(f"Found {len(items)} items on page {page}")
+                    
                 for item in items:
                     try:
-                        # Extract basic product info with robust error handling
                         title_elem = item.query_selector('.itemCard__itemName a')
                         if not title_elem:
                             logger.warning("No title element found for an item")
@@ -82,39 +100,30 @@ class BuyeeScraper:
                         if img_elem:
                             src = img_elem.get_attribute('data-src') or img_elem.get_attribute('src')
                             if src:
-                                # Clean and normalize thumbnail
                                 src = src.split('?')[0]
                                 src = src.replace('?pri=l&w=300&h=300', '')
                                 images.append(src)
 
-                        # Price and time info
-                        price_elem = item.query_selector('.g-price')
-                        price = price_elem.inner_text() if price_elem else "Price Not Available"
-                        
-                        time_elem = item.query_selector('.g-text--attention')
-                        time_remaining = time_elem.inner_text() if time_elem else "Time Not Available"
-
                         # Detailed image collection
-                        if detailed:
+                        if detailed and url:
                             try:
                                 detailed_page = browser_context.new_page()
                                 detailed_page.goto(url, wait_until='domcontentloaded', timeout=30000)
                                 
-                                # Comprehensive image selectors
-                                image_selectors = [
-                                    '.js-item-image',
-                                    '.Product__gallery img',
-                                    '.Product__mainImage img',
-                                    '.itemDetail__thumbList img',
-                                    '[data-image-role="gallery-image"]'
-                                ]
+                                logger.info(f"Scraping images for URL: {url}")
+                                
+                                # Focus only on a.js-smartPhoto img selector
+                                image_selectors = ['a.js-smartPhoto img']
                                 
                                 for selector in image_selectors:
                                     detail_images = detailed_page.query_selector_all(selector)
+                                    logger.info(f"Selector '{selector}' found {len(detail_images)} images")
+                                    
                                     for img in detail_images:
                                         src = (
                                             img.get_attribute('href') or 
                                             img.get_attribute('data-src') or 
+                                            img.get_attribute('data-thumb') or 
                                             img.get_attribute('src')
                                         )
                                         if src:
@@ -127,17 +136,18 @@ class BuyeeScraper:
                                             if src not in images:
                                                 images.append(src)
                                 
+                                logger.info(f"Collected {len(images)} images from URL: {url}")
+                                
                                 detailed_page.close()
-                                logger.info(f"Collected {len(images)} images for {title}")
                             
                             except Exception as detail_e:
-                                logger.error(f"Detailed image collection error: {detail_e}")
+                                logger.error(f"Image collection error for URL {url}: {detail_e}")
 
                         # Create product dictionary
                         product = {
                             "title": title,
-                            "price": price,
-                            "time_remaining": time_remaining,
+                            "price": item.query_selector('.g-price').inner_text() if item.query_selector('.g-price') else "Price Not Available",
+                            "time_remaining": item.query_selector('.g-text--attention').inner_text() if item.query_selector('.g-text--attention') else "Time Not Available",
                             "url": url,
                             "images": images
                         }
