@@ -48,7 +48,7 @@ class BuyeeScraper:
                 if params: search_url += "?" + "&".join(params)
 
                 logger.info(f"Searching with URL: {search_url}")
-                browser_page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
+                browser_page.goto(search_url, wait_until='domcontentloaded', timeout=60000)
                 
                 # Detect total pages
                 pagination_elem = browser_page.query_selector('.pagination')
