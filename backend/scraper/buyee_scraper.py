@@ -35,7 +35,7 @@ class BuyeeScraper:
 
     def scrape_search_results(self, term, min_price='', max_price='', max_pages=None, detailed=True):
         with sync_playwright() as p:
-            try:a
+            try:
                 browser_context = self._setup_browser(p)
                 browser_page = browser_context.new_page()
 
