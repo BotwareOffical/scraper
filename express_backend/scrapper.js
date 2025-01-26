@@ -184,7 +184,7 @@ class BuyeeScraper {
       await page.locator('input[name="bidYahoo[price]"]').fill(bidAmount.toString());
   
       // Uncomment if a confirmation step is required
-      // await page.getByRole('button', { name: 'Abgeschloss' }).click();
+      // await page.locator("#bid_submit").click();
     } catch (error) {
       console.error('Error during bid placement:', error);
       throw new Error('Failed to place the bid. Please try again.');
