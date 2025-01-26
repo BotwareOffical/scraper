@@ -4,23 +4,66 @@ from scraper.buyee_scraper import BuyeeScraper
 import logging
 import time
 
+# At the top of app.py, update the CORS configuration
 app = Flask(__name__)
 
-# Configure CORS with more permissive settings
 CORS(app, 
-     resources={r"/*": {
-         "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
-         "methods": ["GET", "POST", "OPTIONS"],
-         "allow_headers": ["Content-Type", "Authorization"],
-         "expose_headers": ["Content-Type", "Authorization"],
-         "supports_credentials": True,
-         "send_wildcard": False
-     }})
+     resources={
+         r"/*": {
+             "origins": ["http://localhost:5173"],
+             "methods": ["GET", "POST", "OPTIONS"],
+             "allow_headers": ["Content-Type", "Accept"],  # Added Accept
+             "expose_headers": ["Content-Type"],
+             "supports_credentials": True,
+             "max_age": 600
+         }
+     })
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 scraper = BuyeeScraper()
+
+
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
+    return response
+
+@app.after_request
+def after_request(response):
+    return add_cors_headers(response)
+@app.route('/login', methods=['POST', 'OPTIONS'])
+def login():
+    if request.method == 'OPTIONS':
+        response = jsonify({'message': 'OK'})
+        return add_cors_headers(response)
+
+    try:
+        data = request.json
+        logger.info(f"Received login request with data: {data}")
+        
+        username = data.get('username')
+        has_password = 'password' in data
+        
+        logger.info(f"Login attempt from username: {username}, password provided: {has_password}")
+        
+        response = jsonify({
+            "success": True,
+            "message": "Login successful",
+            "receivedUsername": username
+        })
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": f"Login failed: {str(e)}"
+        }), 500
 
 @app.route('/place-bid', methods=['POST'])
 def place_bid():
@@ -58,8 +101,6 @@ def place_bid():
             "success": False,
             "message": str(e)
         }), 500
-
-
 
 @app.route('/search', methods=['POST', 'OPTIONS'])
 def search():
