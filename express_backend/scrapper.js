@@ -1,5 +1,8 @@
 const { chromium } = require('playwright');
 const logger = require('pino')();
+const fs = require('fs');
+const path = require('path');
+const bidFilePath = path.join('../bids.json');
 
 class BuyeeScraper {
   constructor() {
@@ -163,7 +166,7 @@ async scrapeSearchResults(term, minPrice = '', maxPrice = '', category = '23000'
     logger.info(`Total products collected: ${allProducts.length}`);
     return allProducts;
   }
-
+  
   async placeBid(productUrl, bidAmount) {
     const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext({ storageState: "login.json" });
@@ -173,12 +176,19 @@ async scrapeSearchResults(term, minPrice = '', maxPrice = '', category = '23000'
       await page.goto(productUrl);
       
       await page.waitForTimeout(2000);
+
       // Check if the "Bid Now" button exists
       const bidNowButton = page.locator('#bidNow');
       if (!(await bidNowButton.count())) {
         console.warn('No "Bid Now" button found on the page');
         return { success: false, message: 'No "Bid Now" button found on the page' };
       }
+
+    // Extract the time remaining for the auction
+    const timeRemaining = await page
+      .locator('//span[contains(@class, "g-title")]/following-sibling::span')
+      .first()
+      .textContent();
   
       // Click the "Bid Now" button
       await bidNowButton.click();
@@ -190,6 +200,27 @@ async scrapeSearchResults(term, minPrice = '', maxPrice = '', category = '23000'
   
       // Uncomment if a confirmation step is required
       // await page.locator("#bid_submit").click();
+  
+      // Save bid details to JSON file
+      const bidDetails = { productUrl, bidAmount, timestamp: timeRemaining.trim() };
+      let existingBids = [];
+  
+      if (fs.existsSync(bidFilePath)) {
+        existingBids = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
+      }
+  
+      // Check if the product URL already exists in the file
+      const existingIndex = existingBids.findIndex(bid => bid.productUrl === productUrl);
+  
+      if (existingIndex !== -1) {
+        // Update existing entry
+        existingBids[existingIndex] = bidDetails;
+      } else {
+        // Add new entry
+        existingBids.push(bidDetails);
+      }
+  
+      fs.writeFileSync(bidFilePath, JSON.stringify(existingBids, null, 2));
   
       return { success: true, message: `Bid of ${bidAmount} placed successfully` };
     } catch (error) {

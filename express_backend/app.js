@@ -3,6 +3,9 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const BuyeeScraper = require('./scrapper');
 const logger = require('morgan');
+const fs = require('fs');
+const path = require('path');
+const bidFilePath = path.join('../bids.json');
 
 const app = express();
 
@@ -49,9 +52,12 @@ app.post('/place-bid', async (req, res) => {
       return res.status(400).json(response);
     }
 
+    const updatedBids = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
+
     res.json({
       success: true,
       message: response.message,
+      updatedBids,
     });
   } catch (error) {
     console.error('Bid placement error:', error);
