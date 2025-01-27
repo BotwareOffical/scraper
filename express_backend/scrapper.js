@@ -30,13 +30,19 @@ class BuyeeScraper {
   }
 
 // Scrape search results
-async scrapeSearchResults(term, minPrice = '', maxPrice = '', page = 1, detailed = true) {
+async scrapeSearchResults(term, category='', minPrice = '', maxPrice = '', page = 1, detailed = true) {
   const { browser, context } = await this.setupBrowser();
   try {
     const pageInstance = await context.newPage();
 
     // Construct search URL
     let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
+    // Add category to the URL if provided
+    if (category) {
+      searchUrl += `/category/${category}`;
+    }
+
+    // Query params
     const params = [];
     if (minPrice) params.push(`aucminprice=${minPrice}`);
     if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
