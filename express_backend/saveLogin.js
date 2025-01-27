@@ -13,4 +13,5 @@ const { chromium } = require('playwright'); // Import Playwright
     await page.pause();
 
     await context.storageState({ path: "login.json"});
+    await browser.close();
 })();

@@ -25,37 +25,41 @@ const scraper = new BuyeeScraper();
 
 // Place bid endpoint
 app.post('/place-bid', async (req, res) => {
-    try {
-      console.log('Received bid request data:', req.body);
-  
-      const { productId: productUrl, amount: bidAmount } = req.body;
-  
-      console.log('Bid Details:');
-      console.log(`Product URL: ${productUrl}`);
-      console.log(`Bid Amount: ${bidAmount}`);
-  
-      if (!productUrl || !bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
-        console.warn('Invalid product URL or bid amount');
-        return res.status(400).json({
-          success: false,
-          message: 'Product URL must be valid, and bid amount must be a positive number',
-        });
-      }
-  
-      // Call the scraper's placeBid method
-      await scraper.placeBid(productUrl, bidAmount);
-  
-      res.json({
-        success: true,
-        message: `Bid of ${bidAmount} placed on ${productUrl}`,
-      });
-    } catch (error) {
-      console.error('Bid placement error:', error);
-      res.status(500).json({
+  try {
+    console.log('Received bid request data:', req.body);
+
+    const { productId: productUrl, amount: bidAmount } = req.body;
+
+    console.log('Bid Details:');
+    console.log(`Product URL: ${productUrl}`);
+    console.log(`Bid Amount: ${bidAmount}`);
+
+    if (!productUrl || !bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
+      console.warn('Invalid product URL or bid amount');
+      return res.status(400).json({
         success: false,
-        message: 'Failed to place the bid. Please try again.',
+        message: 'Product URL must be valid, and bid amount must be a positive number',
       });
     }
+
+    // Call the scraper's placeBid method
+    const response = await scraper.placeBid(productUrl, bidAmount);
+
+    if (!response.success) {
+      return res.status(400).json(response);
+    }
+
+    res.json({
+      success: true,
+      message: response.message,
+    });
+  } catch (error) {
+    console.error('Bid placement error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to place the bid. Please try again.',
+    });
+  }
 });
 
 // Search endpoint

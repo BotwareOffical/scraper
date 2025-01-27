@@ -159,22 +159,33 @@ async scrapeSearchResults(term, minPrice = '', maxPrice = '', page = 1, detailed
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext({ storageState: "login.json" });
   
     try {
       const page = await context.newPage();
       await page.goto(productUrl);
+      
+      await page.waitForTimeout(2000);
+      // Check if the "Bid Now" button exists
+      const bidNowButton = page.locator('#bidNow');
+      if (!(await bidNowButton.count())) {
+        console.warn('No "Bid Now" button found on the page');
+        return { success: false, message: 'No "Bid Now" button found on the page' };
+      }
   
       // Click the "Bid Now" button
-      await page.locator('#bidNow').click();
+      await bidNowButton.click();
   
       // Clear and fill the bid amount (convert to string)
-      await page.locator('input[name="bidYahoo[price]"]').clear();
-      await page.locator('input[name="bidYahoo[price]"]').fill(bidAmount.toString());
+      const bidInput = page.locator('input[name="bidYahoo[price]"]');
+      await bidInput.clear();
+      await bidInput.fill(bidAmount.toString());
   
       // Uncomment if a confirmation step is required
       // await page.locator("#bid_submit").click();
+  
+      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
     } catch (error) {
       console.error('Error during bid placement:', error);
       throw new Error('Failed to place the bid. Please try again.');
@@ -195,8 +206,8 @@ async scrapeSearchResults(term, minPrice = '', maxPrice = '', page = 1, detailed
     await page.locator('#login_password').fill(password);
     await page.getByRole('link', { name: 'Login' }).click();
     await page.pause();
-
     await context.storageState({ path: "login.json"});
+    await browser.close();
   }
 }
 
