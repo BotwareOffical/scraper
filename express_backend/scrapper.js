@@ -30,7 +30,7 @@ class BuyeeScraper {
   }
 
 // Scrape search results
-async scrapeSearchResults(term, category='', minPrice = '', maxPrice = '', page = 1, detailed = true) {
+async scrapeSearchResults(term, minPrice = '', maxPrice = '', category = '23000', page = 1) {
   const { browser, context } = await this.setupBrowser();
   try {
     const pageInstance = await context.newPage();
@@ -39,7 +39,7 @@ async scrapeSearchResults(term, category='', minPrice = '', maxPrice = '', page 
     let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
     // Add category to the URL if provided
     if (category) {
-      searchUrl += `/category/${category}`;
+      searchUrl += `/category/23000`;
     }
 
     // Query params
@@ -201,6 +201,39 @@ async scrapeSearchResults(term, category='', minPrice = '', maxPrice = '', page 
       await browser.close();
     }
   }
+
+// Update bid prices
+async updateBid(productUrl) {
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext({ storageState: 'login.json' });
+
+  try {
+    const page = await context.newPage();
+    await page.goto(productUrl);
+
+    // Extract price and time remaining
+    const price = await page.locator('div.price').textContent();
+    console.log('PRICE:', price);
+
+    const timeRemaining = await page
+      .locator('//span[contains(@class, "g-title")]/following-sibling::span')
+      .first()
+      .textContent();
+    console.log('TIME REMAINING:', timeRemaining);
+
+    return {
+      productUrl,
+      price: price.trim(),
+      timeRemaining: timeRemaining.trim(),
+    };
+  } catch (error) {
+    console.error('Error during scraping bid details:', error);
+    throw new Error('Failed to scrape bid details');
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+}
 
   async login(username, password) {
     const browser = await chromium.launch({ headless: false });

@@ -8,10 +8,10 @@ const { chromium } = require('playwright'); // Import Playwright
     // await page.goto('https://buyee.jp/item/yahoo/auction/c1170109320?conversionType=YahooAuction_DirectSearch');
 
     // // Extract image src values
-    const imageSources = await page.evaluate(() => {
-        const images = document.querySelectorAll('ol.flex-control-nav li img');
-        return Array.from(images).map(img => img.src);
-    });
+    // const imageSources = await page.evaluate(() => {
+    //     const images = document.querySelectorAll('ol.flex-control-nav li img');
+    //     return Array.from(images).map(img => img.src);
+    // });
 
     // console.log(imageSources);
 
@@ -19,5 +19,11 @@ const { chromium } = require('playwright'); // Import Playwright
 
 
     // for extracting product details
-    await page.goto('')
+    await page.goto('https://buyee.jp/item/yahoo/auction/v1170900181?conversionType=YahooAuction_DirectSearch');
+    const price = page.locator('div.price').textContent();
+    console.log('PRICE', await price);
+    const timeRemaining = page.locator('//span[contains(@class, "g-title")]/following-sibling::span').first();
+    console.log('Time REMAINING: ', await timeRemaining.textContent());
+    // await page.pause();
+    await page.close();
 })();

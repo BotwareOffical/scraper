@@ -82,10 +82,10 @@ app.post('/search', async (req, res) => {
     const results = [];
 
     for (const searchTerm of searchTerms) {
-      const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
+      const { term = '', minPrice = '', maxPrice = '', category='' } = searchTerm;
 
       // Basic search logic
-      const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice);
+      const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice, category);
       console.log(`Found ${termResults.length} results for term: ${term}`);
       results.push(...termResults);
 
@@ -135,6 +135,53 @@ app.post('/login', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Login failed. Please check your credentials and try again.',
+    });
+  }
+});
+
+// Update bid prices endpoint
+app.post('/update-bid-prices', async (req, res) => {
+  try {
+    console.log('Received update bid prices request:', req.body);
+
+    const { productUrls } = req.body;
+
+    if (!Array.isArray(productUrls) || productUrls.length === 0) {
+      console.warn('Invalid or empty product URLs array');
+      return res.status(400).json({
+        success: false,
+        message: 'Product URLs must be an array and cannot be empty',
+      });
+    }
+
+    const updatedBids = [];
+
+    for (const productUrl of productUrls) {
+      try {
+        const bidDetails = await scraper.updateBid(productUrl);
+        updatedBids.push(bidDetails);
+      } catch (error) {
+        console.error(`Failed to update bid for URL: ${productUrl}`, error);
+        updatedBids.push({
+          productUrl,
+          error: error.message || 'Failed to retrieve bid details',
+        });
+      }
+
+      // Avoid rate limiting
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    res.json({
+      success: true,
+      updatedBids,
+      count: updatedBids.length,
+    });
+  } catch (error) {
+    console.error('Update bid prices error:', error);
+    res.status(500).json({
+      success: false,
+      error: `Failed to update bid prices: ${error.message}`,
     });
   }
 });
