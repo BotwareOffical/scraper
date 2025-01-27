@@ -17,8 +17,15 @@ export interface ProductGridProps {
   products: Product[]
 }
 
+export interface SearchTerm {
+  term: string
+  minPrice: string
+  maxPrice: string
+  category?: string  // Made optional since it won't always be present
+}
+
 export interface SearchBarProps {
-  onSearch: (terms: Array<{term: string, minPrice: string, maxPrice: string}>) => Promise<void>
+  onSearch: (terms: SearchTerm[]) => Promise<void>
 }
 
 export interface SearchResponse {
