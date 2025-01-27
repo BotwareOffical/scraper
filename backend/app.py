@@ -59,6 +59,8 @@ def place_bid():
             "message": str(e)
         }), 500
 
+
+
 @app.route('/search', methods=['POST', 'OPTIONS'])
 def search():
     if request.method == 'OPTIONS':

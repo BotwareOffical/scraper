@@ -29,123 +29,113 @@ class BuyeeScraper {
     }
   }
 
-  // Scrape search results
-  async scrapeSearchResults(term, minPrice = '', maxPrice = '', page = 1, detailed = true) {
-    const { browser, context } = await this.setupBrowser();
-    try {
-      const pageInstance = await context.newPage();
+// Scrape search results
+async scrapeSearchResults(term, minPrice = '', maxPrice = '', page = 1, detailed = true) {
+  const { browser, context } = await this.setupBrowser();
+  try {
+    const pageInstance = await context.newPage();
 
-      // Construct search URL
-      let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
-      const params = [];
-      if (minPrice) params.push(`aucminprice=${minPrice}`);
-      if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
-      if (page > 1) params.push(`page=${page}`);
-      params.push('translationType=98');
-      if (params.length) searchUrl += `?${params.join('&')}`;
+    // Construct search URL
+    let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
+    const params = [];
+    if (minPrice) params.push(`aucminprice=${minPrice}`);
+    if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
+    if (page > 1) params.push(`page=${page}`);
+    params.push('translationType=98');
+    if (params.length) searchUrl += `?${params.join('&')}`;
 
-      logger.info(`Searching with URL: ${searchUrl}`);
-      await pageInstance.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    logger.info(`Searching with URL: ${searchUrl}`);
+    await pageInstance.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-      // Wait for items to load
-      await pageInstance.waitForSelector('.itemCard', { timeout: 10000 });
+    // Wait for items to load
+    await pageInstance.waitForSelector('.itemCard', { timeout: 10000 });
 
-      const items = await pageInstance.$$('.itemCard');
-      logger.info(`Found ${items.length} items in search results`);
+    const items = await pageInstance.$$('.itemCard');
+    logger.info(`Found ${items.length} items in search results`);
 
-      const products = [];
-      for (const item of items) {
-        try {
-          const titleElement = await item.$('.itemCard__itemName a');
-          if (!titleElement) {
-            logger.warn('No title element found for an item');
-            continue;
-          }
-
-          const title = await titleElement.innerText();
-          let url = await titleElement.getAttribute('href');
-          if (!url) {
-            logger.warn(`No URL found for item: ${title}`);
-            continue;
-          }
-          if (!url.startsWith('http')) url = `${this.baseUrl}${url}`;
-
-          // Extract image
-          const images = [];
-          const imgElement = await item.$('.g-thumbnail__image');
-          if (imgElement) {
-            let src = (await imgElement.getAttribute('data-src')) || (await imgElement.getAttribute('src'));
-            if (src) {
-              src = src.split('?')[0].replace('?pri=l&w=300&h=300', '');
-              images.push(src);
-            }
-          }
-
-          // Extract price and time remaining
-          const priceElement = await item.$('.g-price');
-          const price = priceElement ? await priceElement.innerText() : 'Price Not Available';
-
-          const timeElement = await item.$('.g-text--attention');
-          const timeRemaining = timeElement ? await timeElement.innerText() : 'Time Not Available';
-
-          // Detailed image collection
-          if (detailed) {
-            try {
-              const detailedPage = await context.newPage();
-              await detailedPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-              const imageSelectors = [
-                '.js-item-image',
-                '.Product__gallery img',
-                '.Product__mainImage img',
-                '.itemDetail__thumbList img',
-                '[data-image-role="gallery-image"]',
-              ];
-
-              for (const selector of imageSelectors) {
-                const detailImages = await detailedPage.$$(selector);
-                for (const img of detailImages) {
-                  let src =
-                    (await img.getAttribute('href')) ||
-                    (await img.getAttribute('data-src')) ||
-                    (await img.getAttribute('src'));
-                  if (src) {
-                    src = src.split('?')[0];
-                    if (!src.startsWith('http')) src = `${this.baseUrl}${src}`;
-                    if (!images.includes(src)) images.push(src);
-                  }
-                }
-              }
-
-              await detailedPage.close();
-              logger.info(`Collected ${images.length} images for ${title}`);
-            } catch (detailError) {
-              logger.error(`Detailed image collection error: ${detailError.message}`);
-            }
-          }
-
-          // Create product object
-          const product = {
-            title,
-            price,
-            timeRemaining,
-            url,
-            images,
-          };
-          products.push(product);
-        } catch (itemError) {
-          logger.error(`Error processing individual item: ${itemError.message}`);
+    const products = [];
+    for (const item of items) {
+      try {
+        const titleElement = await item.$('.itemCard__itemName a');
+        if (!titleElement) {
+          logger.warn('No title element found for an item');
+          continue;
         }
-      }
 
-      await browser.close();
-      return products;
-    } catch (error) {
-      logger.error(`Comprehensive search scraping error: ${error.message}`, error);
-      await browser.close();
-      return [];
+        const title = await titleElement.innerText();
+        let url = await titleElement.getAttribute('href');
+        if (!url) {
+          logger.warn(`No URL found for item: ${title}`);
+          continue;
+        }
+        if (!url.startsWith('http')) url = `${this.baseUrl}${url}`;
+
+        // Extract image
+        const images = [];
+        const imgElement = await item.$('.g-thumbnail__image');
+        if (imgElement) {
+          let src = (await imgElement.getAttribute('data-src')) || (await imgElement.getAttribute('src'));
+          if (src) {
+            src = src.split('?')[0].replace('?pri=l&w=300&h=300', '');
+            images.push(src);
+          }
+        }
+
+        // Extract price and time remaining
+        const priceElement = await item.$('.g-price');
+        const price = priceElement ? await priceElement.innerText() : 'Price Not Available';
+
+        const timeElement = await item.$('.g-text--attention');
+        const timeRemaining = timeElement ? await timeElement.innerText() : 'Time Not Available';
+
+        // Create product object
+        const product = {
+          title,
+          price,
+          timeRemaining,
+          url,
+          images
+        };
+        products.push(product);
+      } catch (itemError) {
+        logger.error(`Error processing individual item: ${itemError.message}`);
+      }
     }
+
+    // Send initial data immediately
+    console.log("INITIAL PRODUCT DETAILS", products);
+
+    // Fetch additional images asynchronously
+    for (const product of products) {
+      try {
+        const productPage = await context.newPage();
+        await productPage.goto(product.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        const additionalImages = await productPage.evaluate(() => {
+          const images = document.querySelectorAll('ol.flex-control-nav li img');
+          return Array.from(images).map(img => img.src);
+        });
+
+        // Merge additional images into the existing images array
+        product.images = [...new Set([...product.images, ...additionalImages])];
+
+        await productPage.close();
+
+        // Notify front end with updated product
+        console.log("UPDATED PRODUCT WITH MERGED IMAGES", product);
+      } catch (additionalImageError) {
+        logger.error(`Error fetching additional images for ${product.title}: ${additionalImageError.message}`);
+      }
+    }
+
+    await browser.close();
+    return products;
+  } catch (error) {
+    logger.error(`Comprehensive search scraping error: ${error.message}`, error);
+    await browser.close();
+    return [];
   }
+}
 
   // Scrape multiple pages
   async scrapeAllPages(term, minPrice = '', maxPrice = '', maxPages = 3) {
@@ -193,7 +183,21 @@ class BuyeeScraper {
       await context.close();
       await browser.close();
     }
-  }  
+  }
+
+  async login(username, password) {
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await page.goto('https://buyee.jp/signup/login');
+    await page.locator('#login_mailAddress').fill(username);
+    await page.locator('#login_password').fill(password);
+    await page.getByRole('link', { name: 'Login' }).click();
+    await page.pause();
+
+    await context.storageState({ path: "login.json"});
+  }
 }
 
 module.exports = BuyeeScraper;

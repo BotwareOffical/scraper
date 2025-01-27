@@ -109,5 +109,4 @@ const ProductImageCarousel = ({ images }: { images: string[] }) => {
   );
 };
 
-
 export default ProductImageCarousel;

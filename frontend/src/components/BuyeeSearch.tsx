@@ -1,9 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { LayoutDashboard } from 'lucide-react'
 import SearchBar from './SearchBar'
 import ProductGrid from './ProductGrid'
-import { Product, SearchResponse } from '..'
+import { Product } from '..'
 
 const BuyeeSearch = () => {
+  const navigate = useNavigate()
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -13,8 +16,6 @@ const BuyeeSearch = () => {
     setError(null)
 
     try {
-      console.log('Initiating search with terms:', searchTerms)
-      
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: {
@@ -22,28 +23,17 @@ const BuyeeSearch = () => {
           'Accept': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({
-          terms: searchTerms
-        })
+        body: JSON.stringify({ terms: searchTerms })
       })
 
       const data = await response.json()
       
-      if (!response.ok) {
-        console.error('Server responded with error:', data)
-        throw new Error(data.error || `Server error: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`)
+      if (!data.success) throw new Error(data.error || 'Search failed')
 
-      if (!data.success) {
-        console.error('Search failed:', data.error)
-        throw new Error(data.error || 'Search failed')
-      }
-
-      console.log(`Search successful, found ${data.count} results`)
       setProducts(data.results)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
-      console.error('Search error:', err)
       setError(`Search failed: ${errorMessage}. Please try again in a few moments.`)
     } finally {
       setIsLoading(false)
@@ -52,7 +42,17 @@ const BuyeeSearch = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">Buyee Product Search</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Buyee Product Search</h1>
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          View Tracked Auctions
+        </button>
+      </div>
+      
       <SearchBar onSearch={handleSearch} />
       
       {isLoading && (

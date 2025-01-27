@@ -103,6 +103,38 @@ app.post('/search', async (req, res) => {
   }
 });
 
+// Login endpoint
+app.post('/login', async (req, res) => {
+  try {
+    console.log('Received login request:', req.body);
+
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      console.warn('Username or password missing');
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required',
+      });
+    }
+
+    // Call the scraper's login method
+    const loginResult = await scraper.login(username, password);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: loginResult,
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Login failed. Please check your credentials and try again.',
+    });
+  }
+});
+
 // Start the server
 const PORT = 5000;
 app.listen(PORT, '127.0.0.1', () => {
