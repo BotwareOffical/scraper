@@ -8,7 +8,13 @@ interface PriceRange {
   max: string;
 }
 
-const ProductGrid: React.FC<ProductGridProps> = ({ products }) => {
+const ProductGrid: React.FC<ProductGridProps> = ({ 
+  products, 
+  totalMatches, 
+  currentPage, 
+  onLoadMore, 
+  isLoading 
+}) => {
   const [sortBy, setSortBy] = useState<string>('default');
   const [priceRange, setPriceRange] = useState<PriceRange>({ min: '', max: '' });
   const [showFilters, setShowFilters] = useState<boolean>(false);
@@ -50,6 +56,11 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products }) => {
     return result;
   }, [products, sortBy, priceRange]);
 
+  // Calculate if we should show the Load More button
+  const hasMoreProducts = products.length < totalMatches;
+  const productsPerPage = 20; // Matches Buyee's pagination
+  const totalPages = Math.ceil(totalMatches / productsPerPage);
+
   if (products.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -62,7 +73,7 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products }) => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <p className="text-gray-600">
-          {filteredAndSortedProducts.length} products found
+          Showing {filteredAndSortedProducts.length} of {totalMatches} products
         </p>
         <button
           onClick={() => setShowFilters(!showFilters)}
@@ -120,9 +131,23 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredAndSortedProducts.map((product, index) => (
-          <ProductCard key={index} product={product} />
+          <ProductCard key={`${product.url}-${index}`} product={product} />
         ))}
       </div>
+
+      {hasMoreProducts && (
+        <div className="flex justify-center mt-8">
+          <button
+            onClick={onLoadMore}
+            disabled={isLoading}
+            className={`px-6 py-3 rounded-lg text-white transition-colors ${
+              isLoading ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'
+            }`}
+          >
+            {isLoading ? 'Loading...' : `Load More (Page ${currentPage} of ${totalPages})`}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

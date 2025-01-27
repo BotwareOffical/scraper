@@ -5,7 +5,7 @@ const BuyeeScraper = require('./scrapper');
 const logger = require('morgan');
 const fs = require('fs');
 const path = require('path');
-const bidFilePath = path.join('../bids.json');
+const bidFilePath = path.resolve(__dirname, '../bids.json');
 
 const app = express();
 
@@ -88,10 +88,10 @@ app.post('/search', async (req, res) => {
     const results = [];
 
     for (const searchTerm of searchTerms) {
-      const { term = '', minPrice = '', maxPrice = '', category='' } = searchTerm;
+      const { term = '', minPrice = '', maxPrice = '', category='', page=0 } = searchTerm;
 
       // Basic search logic
-      const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice, category);
+      const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice, category, page);
       console.log(`Found ${termResults.length} results for term: ${term}`);
       results.push(...termResults);
 
@@ -105,11 +105,42 @@ app.post('/search', async (req, res) => {
       count: results.length,
     });
   } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({
-      success: false,
-      error: `Search failed: ${error.message}`,
+    console.error('Search error:', error.message);
+    res.status(500).json({ error: 'Failed to search products' });
+  }
+});
+
+// Details Endpoint
+app.post('/details', async (req, res) => {
+  try {
+    const { urls = [] } = req.body;
+
+    if (!urls.length) {
+      return res.status(400).json({ error: 'No URLs provided' });
+    }
+
+    const updatedDetails = await scraper.scrapeDetails(urls);
+
+    res.json({
+      success: true,
+      updatedDetails,
     });
+  } catch (error) {
+    console.error('Details error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch additional details' });
+  }
+});
+
+app.get('/bids', (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    const data = fs.readFileSync(bidFilePath, 'utf-8');
+    const bidsData = JSON.parse(data);
+    console.log(bidsData)
+    res.json(bidsData.bids);
+  } catch (error) {
+    console.error(`Error reading bids: ${error.message}`);
+    res.status(500).json({ error: error.message });
   }
 });
 

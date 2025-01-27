@@ -3,17 +3,24 @@ import { useNavigate } from 'react-router-dom'
 import { LayoutDashboard } from 'lucide-react'
 import SearchBar from './SearchBar'
 import ProductGrid from './ProductGrid'
-import { Product } from '..'
+import { Product, SearchTerm } from '..'
 
 const BuyeeSearch = () => {
   const navigate = useNavigate()
   const [products, setProducts] = useState<Product[]>([])
+  const [totalMatches, setTotalMatches] = useState<number>(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [currentSearchTerms, setCurrentSearchTerms] = useState<SearchTerm[]>([])
 
   const handleSearch = async (searchTerms: Array<{term: string, minPrice: string, maxPrice: string}>) => {
     setIsLoading(true)
     setError(null)
+    setCurrentPage(1)
+    setProducts([])
+    setTotalMatches(0)
+    setCurrentSearchTerms(searchTerms)
 
     try {
       const response = await fetch('/api/search', {
@@ -23,7 +30,10 @@ const BuyeeSearch = () => {
           'Accept': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ terms: searchTerms })
+        body: JSON.stringify({ 
+          terms: searchTerms,
+          page: 1
+        })
       })
 
       const data = await response.json()
@@ -32,9 +42,45 @@ const BuyeeSearch = () => {
       if (!data.success) throw new Error(data.error || 'Search failed')
 
       setProducts(data.results)
+      setTotalMatches(data.totalMatches || data.results.length)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
       setError(`Search failed: ${errorMessage}. Please try again in a few moments.`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const loadMoreProducts = async () => {
+    if (isLoading) return;
+    
+    const nextPage = currentPage + 1;
+    setIsLoading(true)
+    
+    try {
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          terms: currentSearchTerms,
+          page: nextPage
+        })
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`)
+      if (!data.success) throw new Error(data.error || 'Search failed')
+
+      setProducts(prev => [...prev, ...data.results])
+      setCurrentPage(nextPage)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(`Failed to load more products: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }
@@ -55,7 +101,7 @@ const BuyeeSearch = () => {
       
       <SearchBar onSearch={handleSearch} />
       
-      {isLoading && (
+      {isLoading && products.length === 0 && (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
         </div>
@@ -69,12 +115,24 @@ const BuyeeSearch = () => {
       )}
       
       {!isLoading && !error && products.length > 0 && (
-        <ProductGrid products={products} />
+        <ProductGrid 
+          products={products} 
+          totalMatches={totalMatches}
+          currentPage={currentPage}
+          onLoadMore={loadMoreProducts}
+          isLoading={isLoading}
+        />
       )}
       
       {!isLoading && !error && products.length === 0 && (
         <div className="text-center py-8 text-gray-500">
           No products found. Try different search terms.
+        </div>
+      )}
+
+      {isLoading && products.length > 0 && (
+        <div className="text-center py-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
         </div>
       )}
     </div>

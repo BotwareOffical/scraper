@@ -102,39 +102,87 @@ def place_bid():
             "message": str(e)
         }), 500
 
+
+@app.route('/api/bids', methods=['GET'])
+def get_bids():
+    try:
+        # Read bids from the JSON file
+        bids_path = os.path.join(os.path.dirname(__file__), 'data', 'bids.json')
+        with open(bids_path, 'r') as f:
+            bids_data = json.load(f)
+        return jsonify(bids_data['bids'])  # Return the bids array
+    except Exception as e:
+        logger.error(f"Error reading bids: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/products', methods=['POST'])
+def get_products():
+    try:
+        data = request.json
+        urls = data.get('urls', [])
+        
+        if not urls:
+            return jsonify({"error": "No URLs provided"}), 400
+            
+        products = []
+        for url in urls:
+            # Use your scraper to get product details
+            product_details = scraper.scrape_item_details(url)
+            if product_details:
+                products.append(product_details)
+                
+        return jsonify(products)
+    except Exception as e:
+        logger.error(f"Error fetching products: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# Modify the existing search endpoint to include total matches
 @app.route('/search', methods=['POST', 'OPTIONS'])
 def search():
     if request.method == 'OPTIONS':
         response = jsonify({'message': 'OK'})
-        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        return response
+        return add_cors_headers(response)
 
     try:
         data = request.json
         logger.info(f"Received search request with data: {data}")
         search_terms = data.get('terms', [])
+        page = data.get('page', 1)
         
         if not search_terms:
             logger.warning("No search terms provided in request")
             return jsonify({"error": "No search terms provided"}), 400
         
-        results = []
+        all_results = []
+        total_matches = 0
+        
         for search_term in search_terms:
             term = search_term.get('term', '')
             min_price = search_term.get('minPrice', '')
             max_price = search_term.get('maxPrice', '')
             
-            # Basic search first
-            term_results = scraper.scrape_search_results(term, min_price, max_price)
-            logger.info(f"Found {len(term_results)} results for term: {term}")
-            results.extend(term_results)
+            # Get both results and total matches from scraper
+            term_results, term_total = scraper.scrape_search_results(
+                term=term, 
+                min_price=min_price, 
+                max_price=max_price,
+                page=page
+            )
+            
+            all_results.extend(term_results)
+            total_matches = max(total_matches, term_total)  # Take the highest number of matches
             time.sleep(2)  # Avoid rate limiting
+        
+        # Calculate total pages
+        total_pages = (total_matches + 19) // 20  # Ceiling division by 20
+        
+        logger.info(f"Total matches: {total_matches}, Total pages: {total_pages}")
         
         return jsonify({
             "success": True,
-            "results": results,
-            "count": len(results)
+            "results": all_results,
+            "totalMatches": total_matches,
+            "totalPages": total_pages
         })
         
     except Exception as e:

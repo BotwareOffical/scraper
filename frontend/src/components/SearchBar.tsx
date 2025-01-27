@@ -38,7 +38,15 @@ const SearchBar = ({ onSearch }: SearchBarProps) => {
       const searchTerm: SearchTerm = {
         term: parts[0],
         minPrice: '',
-        maxPrice: ''
+        maxPrice: '',
+        page: 1,
+      }
+
+      // If we have a price range
+      if (parts.length >= 2 && parts[1]) {
+        const priceRange = parts[1].split('-')
+        searchTerm.minPrice = priceRange[0] || ''
+        searchTerm.maxPrice = priceRange[1] || ''
       }
 
       // If we have a price range
@@ -51,6 +59,11 @@ const SearchBar = ({ onSearch }: SearchBarProps) => {
       // If we have a category specified as 'mode'
       if (parts.length >= 3 && parts[2] === 'mode') {
         searchTerm.category = '23000'
+      }
+
+      // If we have a pages option specified
+      if (parts.length >= 4 && parts[3] && !isNaN(parseInt(parts[3]))) {
+        searchTerm.page = parseInt(parts[3]) // Set the pages to scrape
       }
       
       return searchTerm

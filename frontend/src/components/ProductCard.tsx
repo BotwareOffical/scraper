@@ -17,20 +17,38 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setBidError(null);
   
     try {
-      const response = await fetch('/api/place-bid', {
+      // First, place the bid
+      const bidResponse = await fetch('/api/place-bid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          productId: product.url, // Send full product URL
+          productId: product.url,
           amount: Number(bidAmount)
         })
       });
   
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to place bid');
+      const bidData = await bidResponse.json();
+      if (!bidData.success) {
+        throw new Error(bidData.message || 'Failed to place bid');
+      }
+
+      // If bid is successful, update tracking with fixed amount
+      const trackResponse = await fetch('/api/update-bid', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: product.url,
+          amount: 999
+        })
+      });
+
+      const trackData = await trackResponse.json();
+      if (!trackData.success) {
+        console.error('Failed to update bid tracking:', trackData.message);
       }
   
       setBidAmount(''); // Clear bid amount on success

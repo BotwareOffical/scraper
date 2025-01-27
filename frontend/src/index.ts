@@ -15,13 +15,18 @@ export interface ProductCardProps {
 
 export interface ProductGridProps {
   products: Product[]
+  totalMatches: number
+  currentPage: number
+  onLoadMore: () => void
+  isLoading: boolean
 }
 
 export interface SearchTerm {
   term: string
   minPrice: string
   maxPrice: string
-  category?: string  // Made optional since it won't always be present
+  category?: string,
+  page?: number
 }
 
 export interface SearchBarProps {
@@ -31,6 +36,6 @@ export interface SearchBarProps {
 export interface SearchResponse {
   success: boolean
   results: Product[]
-  count: number
+  totalMatches: number
   error?: string
 }

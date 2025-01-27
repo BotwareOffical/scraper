@@ -3,53 +3,62 @@ import { Bell } from 'lucide-react';
 import ProductCard from './ProductCard';
 import { Product } from '..';
 
-// Hardcoded test URLs - replace with your actual tracked auction URLs
-const TEST_AUCTION_URLS = [
-  "https://buyee.jp/item/yahoo/auction/v1155809379?conversionType=YahooAuction_DirectSearch",
-  // Add more test URLs here
-];
+interface Bid {
+  productUrl: string;
+  bidAmount: number;
+}
 
-interface TrackedAuctionsResponse {
-  auctions: Product[];
-  error?: string;
+interface TrackedProduct extends Product {
+  bidAmount: number;
 }
 
 const TrackedAuctions: React.FC = () => {
-  const [trackedProducts, setTrackedProducts] = useState<Product[]>([]);
+  const [trackedProducts, setTrackedProducts] = useState<TrackedProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchTrackedAuctions = async () => {
       try {
-        // For testing, create dummy products from URLs
-        const dummyProducts = TEST_AUCTION_URLS.map(url => ({
-          title: "Test Auction Item",
-          price: "¥5,000",
-          time_remaining: "2 days 3 hours",
-          url: url,
-          images: ["/api/placeholder/400/400"]
-        }));
+        // First, fetch the bids.json to get tracked URLs
+        const bidsResponse = await fetch('/api/bids');
+        const bidsData = await bidsResponse.json() as Bid[];
         
-        setTrackedProducts(dummyProducts);
+        // Filter bids with amount 999
+        const trackedBids = bidsData.filter(bid => bid.bidAmount === 999);
         
-        // Once backend is ready, replace with actual API call:
-        /*
-        const response = await fetch('/api/tracked-auctions/', {
+        if (trackedBids.length === 0) {
+          setTrackedProducts([]);
+          return;
+        }
+
+        // Fetch product details for each tracked URL
+        const productsResponse = await fetch('/api/products', {
           method: 'POST',
-          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ urls: TEST_AUCTION_URLS })
+          body: JSON.stringify({
+            urls: trackedBids.map(bid => bid.productUrl)
+          })
         });
-        const data = await response.json() as TrackedAuctionsResponse;
+
+        if (!productsResponse.ok) {
+          throw new Error('Failed to fetch product details');
+        }
+
+        const productsData = await productsResponse.json();
         
-        if (!response.ok) throw new Error(data.error || 'Failed to fetch tracked auctions');
-        setTrackedProducts(data.auctions);
-        */
+        // Combine product data with bid amounts
+        const productsWithBids = productsData.map((product: Product) => ({
+          ...product,
+          bidAmount: trackedBids.find(bid => bid.productUrl === product.url)?.bidAmount || 0
+        }));
+
+        setTrackedProducts(productsWithBids);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('Error fetching tracked auctions:', err);
       } finally {
         setLoading(false);
       }
@@ -84,7 +93,9 @@ const TrackedAuctions: React.FC = () => {
           <Bell className="w-6 h-6" />
           Tracked Auctions
         </h2>
-        <span className="text-gray-600">{trackedProducts.length} items tracked</span>
+        <span className="text-gray-600">
+          {trackedProducts.length} {trackedProducts.length === 1 ? 'item' : 'items'} tracked
+        </span>
       </div>
 
       {trackedProducts.length === 0 ? (
