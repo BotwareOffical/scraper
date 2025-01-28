@@ -116,10 +116,26 @@ app.post('/details', async (req, res) => {
     const { urls = [] } = req.body;
 
     if (!urls.length) {
-      return res.status(400).json({ error: 'No URLs provided' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'No URLs provided' 
+      });
     }
 
+    // Log incoming URLs for debugging
+    console.log('Received URLs for details:', urls);
+
     const updatedDetails = await scraper.scrapeDetails(urls);
+
+    console.log('Scraped Details:', updatedDetails);
+
+    if (updatedDetails.length === 0) {
+      return res.status(200).json({
+        success: true,
+        updatedDetails: [],
+        error: 'No details found for the provided URLs'
+      });
+    }
 
     res.json({
       success: true,
@@ -127,7 +143,10 @@ app.post('/details', async (req, res) => {
     });
   } catch (error) {
     console.error('Details error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch additional details' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch additional details' 
+    });
   }
 });
 

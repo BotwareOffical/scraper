@@ -9,6 +9,18 @@ export interface Product {
   description?: string
 }
 
+export interface Bid {
+  productUrl: string
+  bidAmount: number
+  timestamp: string
+  title?: string
+  thumbnailUrl?: string
+}
+
+export interface TrackedProduct extends Product {
+  bidAmount: number
+}
+
 export interface ProductCardProps {
   product: Product
 }
@@ -37,5 +49,24 @@ export interface SearchResponse {
   success: boolean
   results: Product[]
   totalMatches: number
+  error?: string
+}
+
+export interface UpdatedBid {
+  productUrl: string
+  price: string
+  timeRemaining: string
+  error?: string
+}
+
+export interface DetailsResponse {
+  success: boolean
+  updatedDetails?: Product[]
+  error?: string
+}
+
+export interface UpdateBidPricesResponse {
+  success: boolean
+  updatedBids: UpdatedBid[]
   error?: string
 }
