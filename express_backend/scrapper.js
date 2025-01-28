@@ -12,7 +12,7 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({ headless: 'new' });
       const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         userAgent:
@@ -185,7 +185,7 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: 'new' });
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -267,23 +267,22 @@ class BuyeeScraper {
 
   // Update bid prices
   async updateBid(productUrl) {
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext({ storageState: "login.json" });
-
+    const { browser, context } = await this.setupBrowser();
+  
     try {
       const page = await context.newPage();
       await page.goto(productUrl);
-
+  
       // Extract price and time remaining
       const price = await page.locator("div.price").textContent();
       console.log("PRICE:", price);
-
+  
       const timeRemaining = await page
         .locator('//span[contains(@class, "g-title")]/following-sibling::span')
         .first()
         .textContent();
       console.log("TIME REMAINING:", timeRemaining);
-
+  
       return {
         productUrl,
         price: price.trim(),
@@ -293,7 +292,6 @@ class BuyeeScraper {
       console.error("Error during scraping bid details:", error);
       throw new Error("Failed to scrape bid details");
     } finally {
-      await context.close();
       await browser.close();
     }
   }
