@@ -12,7 +12,7 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({ headless: 'new' });
       const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         userAgent:
@@ -253,7 +253,7 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: 'new' });
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -400,53 +400,22 @@ class BuyeeScraper {
 
   // Update bid prices
   async updateBid(productUrl) {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: "login.json" });
-
+    const { browser, context } = await this.setupBrowser();
+  
     try {
       const page = await context.newPage();
-      await page.goto(productUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
-      });
-
-      // Extract price with multiple selectors
-      let price = 'Price Not Available';
-      const priceElements = [
-        page.locator('.current_price .price'),
-        page.locator('.price'),
-        page.locator('.itemPrice')
-      ];
-
-      for (const priceElement of priceElements) {
-        try {
-          const priceText = await priceElement.textContent();
-          if (priceText) {
-            price = priceText.trim();
-            break;
-          }
-        } catch {}
-      }
-
-      // Extract time remaining with multiple selectors
-      let timeRemaining = 'Time Not Available';
-      const timeRemainingElements = [
-        page.locator('.itemInformation__infoItem .g-text--attention'),
-        page.locator('.itemInfo__time span'),
-        page.locator('.timeLeft'),
-        page.locator('.g-text--attention')
-      ];
-
-      for (const timeElement of timeRemainingElements) {
-        try {
-          const timeText = await timeElement.textContent();
-          if (timeText) {
-            timeRemaining = timeText.trim();
-            break;
-          }
-        } catch {}
-      }
-
+      await page.goto(productUrl);
+  
+      // Extract price and time remaining
+      const price = await page.locator("div.price").textContent();
+      console.log("PRICE:", price);
+  
+      const timeRemaining = await page
+        .locator('//span[contains(@class, "g-title")]/following-sibling::span')
+        .first()
+        .textContent();
+      console.log("TIME REMAINING:", timeRemaining);
+  
       return {
         productUrl,
         price: price.trim(),
@@ -459,7 +428,6 @@ class BuyeeScraper {
         error: error.message
       };
     } finally {
-      await context.close();
       await browser.close();
     }
   }

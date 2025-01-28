@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Bell as BellIcon, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { Bell, RefreshCw } from 'lucide-react';
 import ProductCard from './ProductCard';
-import {
-  Product,
-  Bid,
-  TrackedProduct,
-  UpdatedBid,
-  DetailsResponse,
-  UpdateBidPricesResponse
-} from '..';
+import { Product } from '..';
+
+interface Bid {
+  productUrl: string;
+  bidAmount: number;
+  timestamp: string;
+}
+
+interface TrackedProduct extends Product {
+  bidAmount: number;
+}
 
 const TrackedAuctions: React.FC = () => {
   const [trackedProducts, setTrackedProducts] = useState<TrackedProduct[]>([]);
@@ -16,138 +19,96 @@ const TrackedAuctions: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchTrackedAuctions = async () => {
+  // Initial fetch of tracked auctions
+  const fetchInitialTrackedAuctions = async () => {
+    console.log('TrackedAuctions: Starting initial fetch...');
     try {
-      setError(null);
-      setLoading(true);
-      
-      // First, fetch the bids to get tracked URLs
-      console.log('Fetching bids from /api/bids...');
+      // First, fetch the bids.json to get tracked URLs
       const bidsResponse = await fetch('/api/bids');
       const bidsData = await bidsResponse.json() as Bid[];
-      console.log('Received bids data:', JSON.stringify(bidsData, null, 2));
+      console.log('TrackedAuctions: Received bids data:', bidsData);
       
-      // Filter bids with amount 999 (tracked items)
-      const trackedBids = bidsData.filter((bid: Bid) => bid.bidAmount === 999);
-      console.log('Filtered tracked bids (amount=999):', JSON.stringify(trackedBids, null, 2));
-      
-      if (trackedBids.length === 0) {
-        console.log('No tracked bids found');
+      if (bidsData.length === 0) {
         setTrackedProducts([]);
-        setLoading(false);
         return;
       }
 
-      // Fetch product details for tracked URLs
-      console.log('Fetching product details for tracked URLs:', 
-        trackedBids.map(bid => bid.productUrl));
-      
-      const productsResponse = await fetch('/api/details', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          urls: trackedBids.map(bid => bid.productUrl)
-        })
-      });
+      // Convert bids data directly to products
+      const productsWithBids = bidsData.map(bid => ({
+        url: bid.productUrl,
+        title: 'Loading...', // Will be updated by refresh
+        price: 'Loading...',
+        time_remaining: bid.timestamp,
+        images: [],
+        bidAmount: bid.bidAmount
+      }));
 
-      const productsData = await productsResponse.json() as DetailsResponse;
-      console.log('Received products data:', JSON.stringify(productsData, null, 2));
-      
-      // Handle empty results gracefully
-      if (!productsData.success || !productsData.updatedDetails || productsData.updatedDetails.length === 0) {
-        console.warn('No product details found. Raw response:', productsData);
-        setTrackedProducts([]);
-        setLoading(false);
-        return;
-      }
-      
-      // Combine product data with bid information
-      const productsWithBids: TrackedProduct[] = productsData.updatedDetails.map((product: Product) => {
-        const matchingBid = trackedBids.find(bid => bid.productUrl === product.url);
-        return {
-          ...product,
-          bidAmount: matchingBid?.bidAmount || 0,
-          title: matchingBid?.title || product.title,
-          images: matchingBid?.thumbnailUrl ? [matchingBid.thumbnailUrl] : product.images
-        };
-      });
-
-      console.log('Final processed products:', JSON.stringify(productsWithBids, null, 2));
       setTrackedProducts(productsWithBids);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-      console.error('Error in fetchTrackedAuctions:', errorMessage);
-      setError(errorMessage);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Error fetching tracked auctions:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const refreshBidPrices = async () => {
-    if (isRefreshing || trackedProducts.length === 0) return;
-    
+  // Refresh function that hits the update-bid-prices endpoint
+  const handleRefresh = async (currentBids?: Bid[]) => {
+    console.log('TrackedAuctions: Starting refresh with update-bid-prices...');
     setIsRefreshing(true);
-    console.log('Refreshing bid prices for products:', 
-      trackedProducts.map(p => p.url));
-
     try {
-      // Use the update-bid-prices endpoint to refresh current prices
+      const bidsToUse = currentBids || trackedProducts.map(product => ({
+        productUrl: product.url,
+        bidAmount: product.bidAmount,
+        timestamp: product.time_remaining
+      }));
+
+      if (bidsToUse.length === 0) {
+        console.log('No products to refresh');
+        return;
+      }
+
       const response = await fetch('/api/update-bid-prices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          productUrls: trackedProducts.map(product => product.url)
+          productUrls: bidsToUse.map(bid => bid.productUrl)
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to refresh bid prices');
+      const data = await response.json();
+      console.log('TrackedAuctions: Update bid prices response:', data);
+
+      if (!response.ok || !data.success) {
+        throw new Error('Failed to update prices');
       }
 
-      const data = await response.json() as UpdateBidPricesResponse;
-      console.log('Received refreshed price data:', data);
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to refresh bid prices');
+      // Update the products with the new data
+      if (data.updatedBids) {
+        const updatedProducts = data.updatedBids.map((updatedBid: any) => {
+          const existingProduct = trackedProducts.find(p => p.url === updatedBid.productUrl);
+          return {
+            ...existingProduct,
+            price: updatedBid.price || 'N/A',
+            time_remaining: updatedBid.timeRemaining || 'N/A'
+          };
+        });
+        setTrackedProducts(updatedProducts);
       }
-
-      // Update products with new prices
-      setTrackedProducts(prev => prev.map(product => {
-        const updatedBid = data.updatedBids.find(bid => bid.productUrl === product.url);
-        return updatedBid ? {
-          ...product,
-          price: updatedBid.price,
-          time_remaining: updatedBid.timeRemaining
-        } : product;
-      }));
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to refresh bid prices';
-      console.error('Error in refreshBidPrices:', errorMessage);
-      setError(errorMessage);
+      console.error('Error updating bid prices:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update prices');
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  // Set up automatic refresh interval
   useEffect(() => {
-    console.log('Setting up initial fetch and refresh interval');
-    fetchTrackedAuctions();
-    
-    const interval = setInterval(() => {
-      console.log('Auto-refreshing tracked auctions...');
-      refreshBidPrices();
-    }, 30000); // Update every 30 seconds
-    
-    return () => {
-      console.log('Cleaning up refresh interval');
-      clearInterval(interval);
-    };
-  }, []);
+    console.log('TrackedAuctions: Running initial fetch');
+    fetchInitialTrackedAuctions();
+  }, []); // Only run once on mount
 
   // Loading state
   if (loading) {
@@ -161,26 +122,23 @@ const TrackedAuctions: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Bell className="w-6 h-6" />
+          Tracked Auctions
+        </h2>
         <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <BellIcon className="w-6 h-6" />
-            Tracked Auctions
-          </h2>
+          <button
+            onClick={() => handleRefresh()}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:bg-blue-300"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
           <span className="text-gray-600">
             {trackedProducts.length} {trackedProducts.length === 1 ? 'item' : 'items'} tracked
           </span>
         </div>
-        
-        <button
-          onClick={refreshBidPrices}
-          disabled={isRefreshing}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white ${
-            isRefreshing ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'
-          }`}
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Bids'}
-        </button>
       </div>
 
       {error && (
