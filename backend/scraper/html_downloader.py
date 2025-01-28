@@ -47,7 +47,7 @@ def download_html(url, output_file):
 
         try:
             logger.info("Attempting to navigate to page...")
-            response = page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
             
             if response is None:
                 logger.error("No response received from the server")
@@ -85,6 +85,6 @@ def download_html(url, output_file):
             browser.close()
 
 if __name__ == "__main__":
-    url = "https://buyee.jp/item/yahoo/auction/u1170693369?conversionType=YahooAuction_DirectSearch"
+    url = "https://buyee.jp/item/yahoo/auction/x1170673963?conversionType=YahooAuction_DirectSearch"
     output_file = "buyee_search_results.html"
     download_html(url, output_file)
