@@ -12,7 +12,7 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: 'new' });
+      const browser = await chromium.launch({ headless: true });
       const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         userAgent:
@@ -131,120 +131,52 @@ class BuyeeScraper {
 
   // Scrape additional details and update search.json
   async scrapeDetails(urls = []) {
+    const filePath = path.join(__dirname, "search.json");
+    if (!fs.existsSync(filePath)) {
+      console.error("search.json not found. Please run a search first.");
+      return [];
+    }
+
+    // Load existing products
+    const products = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+
+    // Filter products based on provided URLs
+    const filteredProducts = products.filter((product) =>
+      urls.includes(product.url)
+    );
+    if (filteredProducts.length === 0) {
+      console.error("No matching products found for the provided URLs.");
+      return [];
+    }
+
     const { browser, context } = await this.setupBrowser();
 
     try {
-      const detailedProducts = [];
-
-      for (const productUrl of urls) {
+      for (const product of filteredProducts) {
         const productPage = await context.newPage();
-        
-        try {
-          console.log(`Navigating to URL: ${productUrl}`);
-          
-          // More aggressive navigation options
-          await productPage.goto(productUrl, {
-            waitUntil: 'load',
-            timeout: 45000
-          });
+        await productPage.goto(product.url, {
+          waitUntil: "domcontentloaded",
+          timeout: 30000,
+        });
 
-          // Additional wait for network to settle
-          await productPage.waitForTimeout(3000);
+        const additionalImages = await productPage.evaluate(() => {
+          const images = document.querySelectorAll(
+            "ol.flex-control-nav li img"
+          );
+          return Array.from(images).map((img) => img.src.split("?")[0]);
+        });
 
-          // Extract product details directly from the page
-          const productDetails = await productPage.evaluate(() => {
-            // More aggressive title extraction
-            let title = 'No Title';
-            const titleElements = [
-              document.querySelector('h1'),
-              document.querySelector('.itemName'),
-              document.querySelector('.itemInfo__name'),
-              document.title
-            ];
-            for (const titleEl of titleElements) {
-              if (titleEl && titleEl.textContent) {
-                title = titleEl.textContent.trim();
-                break;
-              }
-            }
-
-            // More aggressive price extraction
-            let price = 'Price Not Available';
-            const priceElements = [
-              document.querySelector('.current_price .price'),
-              document.querySelector('.price'),
-              document.querySelector('.itemPrice'),
-              document.querySelector('.current_price .g-text--attention')
-            ];
-            for (const priceEl of priceElements) {
-              if (priceEl && priceEl.textContent) {
-                price = priceEl.textContent.trim();
-                break;
-              }
-            }
-
-            // More aggressive time remaining extraction
-            let time_remaining = 'Time Not Available';
-            const timeElements = [
-              document.querySelector('.itemInformation__infoItem .g-text--attention'),
-              document.querySelector('.itemInfo__time span'),
-              document.querySelector('.timeLeft'),
-              document.querySelector('.g-text--attention'),
-              document.querySelector('.itemInformation .g-text')
-            ];
-            for (const timeEl of timeElements) {
-              if (timeEl && timeEl.textContent) {
-                time_remaining = timeEl.textContent.trim();
-                break;
-              }
-            }
-
-            // More comprehensive thumbnail extraction
-            let thumbnailUrl = null;
-            const thumbnailSelectors = [
-              '.flexslider .slides img',
-              '.flex-control-nav .slides img',
-              '.itemImg img',
-              '.mainImage img',
-              '.g-thumbnail__image',
-              '.itemPhoto img',
-              'img.primary-image'
-            ];
-
-            for (const selector of thumbnailSelectors) {
-              const thumbnailElement = document.querySelector(selector);
-              if (thumbnailElement) {
-                thumbnailUrl = thumbnailElement.src || 
-                              thumbnailElement.getAttribute('data-src') || 
-                              thumbnailElement.getAttribute('data-original');
-                if (thumbnailUrl) {
-                  thumbnailUrl = thumbnailUrl.split('?')[0];
-                  break;
-                }
-              }
-            }
-
-            return {
-              title,
-              price,
-              time_remaining,
-              url: window.location.href,
-              images: thumbnailUrl ? [thumbnailUrl] : []
-            };
-          });
-
-          console.log('Extracted Product Details:', JSON.stringify(productDetails, null, 2));
-
-          detailedProducts.push(productDetails);
-        } catch (pageError) {
-          console.error(`Error scraping details for ${productUrl}:`, pageError);
-        } finally {
-          await productPage.close();
-        }
+        // Update product images
+        product.images = [...new Set([...product.images, ...additionalImages])];
+        await productPage.close();
       }
 
+      // Save updated products back to search.json
+      fs.writeFileSync(filePath, JSON.stringify(products, null, 2), "utf-8");
+      logger.info(`Updated search.json with additional details`);
+
       await browser.close();
-      return detailedProducts;
+      return filteredProducts; // Return updated products
     } catch (error) {
       console.error("Details scraping error:", error.message);
       await browser.close();
@@ -253,15 +185,15 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: 'new' });
+    const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext({ storageState: "login.json" });
-
+  
     try {
       const page = await context.newPage();
       await page.goto(productUrl);
-
+  
       await page.waitForTimeout(2000);
-
+  
       // Check if the "Bid Now" button exists
       const bidNowButton = page.locator("#bidNow");
       if (!(await bidNowButton.count())) {
@@ -271,77 +203,30 @@ class BuyeeScraper {
           message: 'No "Bid Now" button found on the page',
         };
       }
+  
+      // Extract the title
+      const titleElement = page.locator("#itemHeader > h1");
+      const title = titleElement ? await titleElement.innerText() : "No Title";
+  
+      // Extract additional images
+      const images = await page.evaluate(() => {
+        const images = document.querySelectorAll('ol.flex-control-nav li img');
+        return Array.from(images).map(img => img.src);
+    });
 
-      // Extract product details
-      const productDetails = await page.evaluate(() => {
-        // Title extraction
-        let title = 'No Title';
-        const titleElements = [
-          document.querySelector('h1'),
-          document.querySelector('.itemName'),
-          document.querySelector('.itemInfo__name'),
-          document.title
-        ];
-        for (const titleEl of titleElements) {
-          if (titleEl && titleEl.textContent) {
-            title = titleEl.textContent.trim();
-            break;
-          }
-        }
-
-        // Thumbnail extraction
-        let thumbnailUrl = null;
-        const thumbnailSelectors = [
-          '.flexslider .slides img',
-          '.flex-control-nav .slides img',
-          '.itemImg img',
-          '.mainImage img',
-          '.g-thumbnail__image',
-          '.itemPhoto img',
-          'img.primary-image'
-        ];
-
-        for (const selector of thumbnailSelectors) {
-          const thumbnailElement = document.querySelector(selector);
-          if (thumbnailElement) {
-            thumbnailUrl = thumbnailElement.src || 
-                           thumbnailElement.getAttribute('data-src') || 
-                           thumbnailElement.getAttribute('data-original');
-            if (thumbnailUrl) {
-              thumbnailUrl = thumbnailUrl.split('?')[0];
-              break;
-            }
-          }
-        }
-
-        // Time remaining extraction
-        let timeRemaining = 'Time Not Available';
-        const timeElements = [
-          document.querySelector('.itemInformation__infoItem .g-text--attention'),
-          document.querySelector('.itemInfo__time span'),
-          document.querySelector('.timeLeft'),
-          document.querySelector('.g-text--attention'),
-          document.querySelector('.itemInformation .g-text')
-        ];
-        for (const timeEl of timeElements) {
-          if (timeEl && timeEl.textContent) {
-            timeRemaining = timeEl.textContent.trim();
-            break;
-          }
-        }
-
-        return { title, thumbnailUrl, timeRemaining };
-      });
-
+    console.log(images);
+      
+      const price = await page.locator('div[class="price"]').textContent();
+  
       // Extract the time remaining for the auction
       const timeRemaining = await page
         .locator('//span[contains(@class, "g-title")]/following-sibling::span')
         .first()
         .textContent();
-
+  
       // Click the "Bid Now" button
       await bidNowButton.click();
-
+  
       // Clear and fill the bid amount (convert to string)
       const bidInput = page.locator('input[name="bidYahoo[price]"]');
       await bidInput.clear();
@@ -349,44 +234,42 @@ class BuyeeScraper {
 
       // Uncomment if a confirmation step is required
       // await page.locator("#bid_submit").click();
-
+  
       // Save bid details to JSON file
       const bidDetails = {
-        productUrl,
-        bidAmount,
-        timestamp: timeRemaining.trim(),
-        title: productDetails.title,
-        thumbnailUrl: productDetails.thumbnailUrl
+        title,
+        price,
+        productUrl: productUrl,
+        images,
+        timeRemaining,
+        bidAmount
       };
-
-      let bidFileData = { bids: [] }; // Default structure for the JSON file
-
+  
+      let bidFileData = []; // Default structure for the JSON file
+  
       // Check if the JSON file exists and read its contents
       if (fs.existsSync(bidFilePath)) {
         const fileContent = fs.readFileSync(bidFilePath, "utf8");
         bidFileData = JSON.parse(fileContent);
       }
-
+  
       // Check if the product URL already exists in the file
-      const existingIndex = bidFileData.bids.findIndex(
-        (bid) => bid.productUrl === productUrl
-      );
-
+      const existingIndex = bidFileData.findIndex((bid) => bid.url === productUrl);
+  
       if (existingIndex !== -1) {
         // Update existing entry
-        bidFileData.bids[existingIndex] = bidDetails;
+        bidFileData[existingIndex] = bidDetails;
       } else {
         // Add new entry
-        bidFileData.bids.push(bidDetails);
+        bidFileData.push(bidDetails);
       }
-
+  
       // Write the updated structure to the file
       fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
-
+  
       return {
         success: true,
         message: `Bid of ${bidAmount} placed successfully`,
-        details: bidDetails
       };
     } catch (error) {
       console.error("Error during bid placement:", error);

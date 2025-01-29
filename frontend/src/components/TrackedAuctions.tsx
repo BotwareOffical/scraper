@@ -4,9 +4,12 @@ import ProductCard from './ProductCard';
 import { Product } from '..';
 
 interface Bid {
+  title: string;
+  price: number;
   productUrl: string;
+  images: string[];
+  timeRemaining: string;
   bidAmount: number;
-  timestamp: string;
 }
 
 interface TrackedProduct extends Product {
@@ -33,15 +36,14 @@ const TrackedAuctions: React.FC = () => {
         return;
       }
 
-      // Convert bids data directly to products
       const productsWithBids = bidsData.map(bid => ({
         url: bid.productUrl,
-        title: 'Loading...', // Will be updated by refresh
-        price: 'Loading...',
-        time_remaining: bid.timestamp,
-        images: [],
+        title: bid.title,
+        price: bid.price.toString(),
+        time_remaining: bid.timeRemaining,
+        images: bid.images,
         bidAmount: bid.bidAmount
-      }));
+      }));      
 
       setTrackedProducts(productsWithBids);
     } catch (err) {
@@ -52,7 +54,6 @@ const TrackedAuctions: React.FC = () => {
     }
   };
 
-  // Refresh function that hits the update-bid-prices endpoint
   const handleRefresh = async (currentBids?: Bid[]) => {
     console.log('TrackedAuctions: Starting refresh with update-bid-prices...');
     setIsRefreshing(true);
@@ -62,39 +63,40 @@ const TrackedAuctions: React.FC = () => {
         bidAmount: product.bidAmount,
         timestamp: product.time_remaining
       }));
-
+  
       if (bidsToUse.length === 0) {
         console.log('No products to refresh');
         return;
       }
-
+  
       const response = await fetch('/api/update-bid-prices', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productUrls: bidsToUse.map(bid => bid.productUrl)
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productUrls: bidsToUse.map(bid => bid.productUrl) })
       });
-
+  
       const data = await response.json();
       console.log('TrackedAuctions: Update bid prices response:', data);
-
+  
       if (!response.ok || !data.success) {
         throw new Error('Failed to update prices');
       }
-
-      // Update the products with the new data
+  
+      // Ensure we update all product details correctly
       if (data.updatedBids) {
-        const updatedProducts = data.updatedBids.map((updatedBid: any) => {
-          const existingProduct = trackedProducts.find(p => p.url === updatedBid.productUrl);
-          return {
-            ...existingProduct,
-            price: updatedBid.price || 'N/A',
-            time_remaining: updatedBid.timeRemaining || 'N/A'
-          };
+        const updatedProducts = trackedProducts.map(product => {
+          const updatedBid = data.updatedBids.find((bid: any) => bid.productUrl === product.url);
+          return updatedBid
+            ? {
+                ...product,
+                title: updatedBid.title || product.title, // Update title if available
+                price: updatedBid.price || 'N/A',
+                time_remaining: updatedBid.timeRemaining || 'N/A',
+                images: updatedBid.images || product.images, // Update images if available
+              }
+            : product;
         });
+  
         setTrackedProducts(updatedProducts);
       }
     } catch (err) {
@@ -103,7 +105,7 @@ const TrackedAuctions: React.FC = () => {
     } finally {
       setIsRefreshing(false);
     }
-  };
+  };  
 
   useEffect(() => {
     console.log('TrackedAuctions: Running initial fetch');

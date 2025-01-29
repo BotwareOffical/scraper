@@ -110,6 +110,29 @@ app.post('/search', async (req, res) => {
   }
 });
 
+// GET endpoint to return saved search results
+app.get('/product-search', async (req, res) => {
+  try {
+    const filePath = path.join(__dirname, 'search.json');
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'No search results found' });
+    }
+
+    const data = fs.readFileSync(filePath, 'utf-8');
+    const results = JSON.parse(data);
+
+    res.json({
+      success: true,
+      results,
+      count: results.length,
+    });
+  } catch (error) {
+    console.error('Error retrieving search results:', error.message);
+    res.status(500).json({ error: 'Failed to retrieve search results' });
+  }
+});
+
 // Details Endpoint
 app.post('/details', async (req, res) => {
   try {
@@ -156,7 +179,7 @@ app.get('/bids', (req, res) => {
     const data = fs.readFileSync(bidFilePath, 'utf-8');
     const bidsData = JSON.parse(data);
     console.log(bidsData)
-    res.json(bidsData.bids);
+    res.json(bidsData);
   } catch (error) {
     console.error(`Error reading bids: ${error.message}`);
     res.status(500).json({ error: error.message });

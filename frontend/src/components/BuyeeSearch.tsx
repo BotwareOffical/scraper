@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LayoutDashboard } from 'lucide-react'
 import SearchBar from './SearchBar'
@@ -14,7 +14,40 @@ const BuyeeSearch = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [currentSearchTerms, setCurrentSearchTerms] = useState<SearchTerm[]>([])
 
-  const handleSearch = async (searchTerms: Array<{term: string, minPrice: string, maxPrice: string}>) => {
+  // Fetch already searched products on mount
+  useEffect(() => {
+    const fetchInitialProducts = async () => {
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch('/api/product-search', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+          credentials: 'include',
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`)
+        if (!data.success) throw new Error(data.error || 'Failed to load products')
+
+        setProducts(data.results)
+        setTotalMatches(data.totalMatches || data.results.length)
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
+        setError(`Failed to load initial products: ${errorMessage}`)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchInitialProducts()
+  }, []) // Runs once when the component mounts
+
+  const handleSearch = async (searchTerms: Array<{ term: string; minPrice: string; maxPrice: string }>) => {
     setIsLoading(true)
     setError(null)
     setCurrentPage(1)
@@ -30,14 +63,14 @@ const BuyeeSearch = () => {
           'Accept': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           terms: searchTerms,
-          page: 1
-        })
+          page: 1,
+        }),
       })
 
       const data = await response.json()
-      
+
       if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`)
       if (!data.success) throw new Error(data.error || 'Search failed')
 
@@ -52,11 +85,11 @@ const BuyeeSearch = () => {
   }
 
   const loadMoreProducts = async () => {
-    if (isLoading) return;
-    
-    const nextPage = currentPage + 1;
+    if (isLoading) return
+
+    const nextPage = currentPage + 1
     setIsLoading(true)
-    
+
     try {
       const response = await fetch('/api/search', {
         method: 'POST',
@@ -65,18 +98,18 @@ const BuyeeSearch = () => {
           'Accept': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           terms: currentSearchTerms,
-          page: nextPage
-        })
+          page: nextPage,
+        }),
       })
 
       const data = await response.json()
-      
+
       if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`)
       if (!data.success) throw new Error(data.error || 'Search failed')
 
-      setProducts(prev => [...prev, ...data.results])
+      setProducts((prev) => [...prev, ...data.results])
       setCurrentPage(nextPage)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
@@ -98,32 +131,32 @@ const BuyeeSearch = () => {
           View Tracked Auctions
         </button>
       </div>
-      
+
       <SearchBar onSearch={handleSearch} />
-      
+
       {isLoading && products.length === 0 && (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
         </div>
       )}
-      
+
       {error && (
         <div className="text-red-500 text-center mb-8">
           <p className="font-bold">Error:</p>
           <p>{error}</p>
         </div>
       )}
-      
+
       {!isLoading && !error && products.length > 0 && (
-        <ProductGrid 
-          products={products} 
+        <ProductGrid
+          products={products}
           totalMatches={totalMatches}
           currentPage={currentPage}
           onLoadMore={loadMoreProducts}
           isLoading={isLoading}
         />
       )}
-      
+
       {!isLoading && !error && products.length === 0 && (
         <div className="text-center py-8 text-gray-500">
           No products found. Try different search terms.

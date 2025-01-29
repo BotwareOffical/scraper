@@ -7,17 +7,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const [bidAmount, setBidAmount] = useState<string>('');
   const [isBidding, setIsBidding] = useState<boolean>(false);
   const [bidError, setBidError] = useState<string | null>(null);
+  const [bidSuccess, setBidSuccess] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
 
   const handleBid = async () => {
     if (!bidAmount || isNaN(Number(bidAmount))) {
       setBidError('Please enter a valid bid amount');
+      setBidSuccess(null);
       return;
     }
-  
+
     setIsBidding(true);
     setBidError(null);
-  
+    setBidSuccess(null);
+
     try {
       const bidResponse = await fetch('/api/place-bid', {
         method: 'POST',
@@ -26,32 +29,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         },
         body: JSON.stringify({
           productId: product.url,
-          amount: Number(bidAmount)
-        })
+          amount: Number(bidAmount),
+        }),
       });
-  
+
       const bidData = await bidResponse.json();
       if (!bidData.success) {
         throw new Error(bidData.message || 'Failed to place bid');
       }
 
-      const trackResponse = await fetch('/api/update-bid', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: product.url,
-          amount: 999
-        })
-      });
-
-      const trackData = await trackResponse.json();
-      if (!trackData.success) {
-        console.error('Failed to update bid tracking:', trackData.message);
-      }
-  
-      setBidAmount('');
+      setBidSuccess('Bid placed successfully!');
     } catch (error) {
       setBidError(error instanceof Error ? error.message : 'Failed to place bid');
     } finally {
@@ -69,8 +56,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          urls: [product.url]
-        })
+          urls: [product.url],
+        }),
       });
 
       const data = await response.json();
@@ -92,11 +79,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       <div className="p-4">
         <h3 className="font-semibold text-lg mb-2 line-clamp-2">{product.title}</h3>
         <p className="text-xl font-bold text-blue-600 mb-2">{product.price}</p>
-        
+
         {product.time_remaining && (
-          <p className="text-sm text-gray-600 mb-4">
-            Time remaining: {product.time_remaining}
-          </p>
+          <p className="text-sm text-gray-600 mb-4">Time remaining: {product.time_remaining}</p>
         )}
 
         <div className="flex gap-2 mb-4">
@@ -106,6 +91,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             onChange={(e) => {
               setBidAmount(e.target.value);
               setBidError(null);
+              setBidSuccess(null);
             }}
             placeholder="Enter bid amount"
             className={`flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 ${
@@ -116,9 +102,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           <button
             onClick={handleBid}
             className={`px-4 py-2 text-white rounded transition-colors ${
-              isBidding 
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-green-500 hover:bg-green-600'
+              isBidding ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'
             }`}
             disabled={isBidding}
             type="button"
@@ -129,9 +113,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             onClick={handleGetDetails}
             disabled={isLoadingDetails}
             className={`px-4 py-2 rounded transition-colors flex items-center gap-2 ${
-              isLoadingDetails 
-                ? 'bg-gray-400 text-white cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+              isLoadingDetails ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'
             }`}
             type="button"
           >
@@ -140,9 +122,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </button>
         </div>
 
-        {bidError && (
-          <p className="text-red-500 text-sm mb-4">{bidError}</p>
-        )}
+        {bidError && <p className="text-red-500 text-sm mb-4">{bidError}</p>}
+        {bidSuccess && <p className="text-green-500 text-sm mb-4">{bidSuccess}</p>}
 
         <a
           href={product.url}
