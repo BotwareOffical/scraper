@@ -197,13 +197,13 @@ class BuyeeScraper {
       permissions: ["geolocation"],
       javaScriptEnabled: true,
     });
-
+  
     try {
       const page = await context.newPage();
       await page.goto(productUrl);
-
+  
       await page.waitForLoadState("load");
-
+  
       // Check if the "Bid Now" button exists
       const bidNowButton = page.locator("#bidNow");
       if (!(await bidNowButton.count())) {
@@ -213,38 +213,35 @@ class BuyeeScraper {
           message: 'No "Bid Now" button found on the page',
         };
       }
-
+  
       // Extract the title
       const titleElement = page.locator("#itemHeader > h1");
       const title = titleElement ? await titleElement.innerText() : "No Title";
-
+  
       // Extract additional images
       const images = await page.evaluate(() => {
         const images = document.querySelectorAll("ol.flex-control-nav li img");
         return Array.from(images).map((img) => img.src);
       });
-
+  
       console.log(images);
-
+  
       const price = await page.locator('div[class="price"]').textContent();
-
+  
       // Extract the time remaining for the auction
       const timeRemaining = await page
         .locator('//span[contains(@class, "g-title")]/following-sibling::span')
         .first()
         .textContent();
-
+  
       // Click the "Bid Now" button
       await bidNowButton.click();
-
+  
       // Clear and fill the bid amount (convert to string)
       const bidInput = page.locator('input[name="bidYahoo[price]"]');
       await bidInput.clear();
       await bidInput.fill(bidAmount.toString());
-
-      // Uncomment if a confirmation step is required
-      // await page.locator("#bid_submit").click();
-
+  
       // Save bid details to JSON file
       const bidDetails = {
         title,
@@ -254,31 +251,31 @@ class BuyeeScraper {
         timeRemaining,
         bidAmount,
       };
-
+  
       let bidFileData = []; // Default structure for the JSON file
-
+  
       // Check if the JSON file exists and read its contents
       if (fs.existsSync(bidFilePath)) {
         const fileContent = fs.readFileSync(bidFilePath, "utf8");
         bidFileData = JSON.parse(fileContent);
       }
-
+  
       // Check if the product URL already exists in the file
       const existingIndex = bidFileData.findIndex(
-        (bid) => bid.url === productUrl
+        (bid) => bid.productUrl === productUrl
       );
-
+  
       if (existingIndex !== -1) {
-        // Update existing entry
-        bidFileData[existingIndex] = bidDetails;
+        // If URL exists, update the bidAmount only
+        bidFileData[existingIndex].bidAmount = bidAmount;
       } else {
-        // Add new entry
+        // If URL doesn't exist, add new entry
         bidFileData.push(bidDetails);
       }
-
+  
       // Write the updated structure to the file
       fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
-
+  
       return {
         success: true,
         message: `Bid of ${bidAmount} placed successfully`,
@@ -291,7 +288,7 @@ class BuyeeScraper {
       await context.close();
       await browser.close();
     }
-  }
+  }  
 
   async updateBid(productUrl) {
     const { browser, context } = await this.setupBrowser();
