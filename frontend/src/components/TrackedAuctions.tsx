@@ -89,10 +89,8 @@ const TrackedAuctions: React.FC = () => {
           return updatedBid
             ? {
                 ...product,
-                title: updatedBid.title || product.title, // Update title if available
                 price: updatedBid.price || 'N/A',
                 time_remaining: updatedBid.timeRemaining || 'N/A',
-                images: updatedBid.images || product.images, // Update images if available
               }
             : product;
         });
