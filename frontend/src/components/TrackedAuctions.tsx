@@ -43,7 +43,7 @@ const TrackedAuctions: React.FC = () => {
         time_remaining: bid.timeRemaining,
         images: bid.images,
         bidAmount: bid.bidAmount
-      }));      
+      }));
 
       setTrackedProducts(productsWithBids);
     } catch (err) {
@@ -105,7 +105,7 @@ const TrackedAuctions: React.FC = () => {
     } finally {
       setIsRefreshing(false);
     }
-  };  
+  };
 
   useEffect(() => {
     console.log('TrackedAuctions: Running initial fetch');

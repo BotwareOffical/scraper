@@ -184,136 +184,57 @@ class BuyeeScraper {
     }
   }
 
-  async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext({ storageState: "login.json" });
-  
-    try {
-      const page = await context.newPage();
-      await page.goto(productUrl);
-  
-      await page.waitForTimeout(2000);
-  
-      // Check if the "Bid Now" button exists
-      const bidNowButton = page.locator("#bidNow");
-      if (!(await bidNowButton.count())) {
-        console.warn('No "Bid Now" button found on the page');
-        return {
-          success: false,
-          message: 'No "Bid Now" button found on the page',
-        };
-      }
-  
-      // Extract the title
-      const titleElement = page.locator("#itemHeader > h1");
-      const title = titleElement ? await titleElement.innerText() : "No Title";
-  
-      // Extract additional images
-      const images = await page.evaluate(() => {
-        const images = document.querySelectorAll('ol.flex-control-nav li img');
-        return Array.from(images).map(img => img.src);
+// Update bid prices and other details
+async updateBid(productUrl) {
+  const { browser, context } = await this.setupBrowser();
+
+  try {
+    const page = await context.newPage();
+    await page.goto(productUrl);
+
+    // Extract the title
+    const titleElement = page.locator("#itemHeader > h1");
+    const title = titleElement ? await titleElement.innerText() : "No Title";
+
+    // Extract additional images
+    const images = await page.evaluate(() => {
+      const images = document.querySelectorAll('ol.flex-control-nav li img');
+      return Array.from(images).map(img => img.src);
     });
 
-    console.log(images);
-      
-      const price = await page.locator('div[class="price"]').textContent();
-  
-      // Extract the time remaining for the auction
-      const timeRemaining = await page
-        .locator('//span[contains(@class, "g-title")]/following-sibling::span')
-        .first()
-        .textContent();
-  
-      // Click the "Bid Now" button
-      await bidNowButton.click();
-  
-      // Clear and fill the bid amount (convert to string)
-      const bidInput = page.locator('input[name="bidYahoo[price]"]');
-      await bidInput.clear();
-      await bidInput.fill(bidAmount.toString());
+    console.log("IMAGES:", images);
 
-      // Uncomment if a confirmation step is required
-      // await page.locator("#bid_submit").click();
-  
-      // Save bid details to JSON file
-      const bidDetails = {
-        title,
-        price,
-        productUrl: productUrl,
-        images,
-        timeRemaining,
-        bidAmount
-      };
-  
-      let bidFileData = []; // Default structure for the JSON file
-  
-      // Check if the JSON file exists and read its contents
-      if (fs.existsSync(bidFilePath)) {
-        const fileContent = fs.readFileSync(bidFilePath, "utf8");
-        bidFileData = JSON.parse(fileContent);
-      }
-  
-      // Check if the product URL already exists in the file
-      const existingIndex = bidFileData.findIndex((bid) => bid.url === productUrl);
-  
-      if (existingIndex !== -1) {
-        // Update existing entry
-        bidFileData[existingIndex] = bidDetails;
-      } else {
-        // Add new entry
-        bidFileData.push(bidDetails);
-      }
-  
-      // Write the updated structure to the file
-      fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
-  
-      return {
-        success: true,
-        message: `Bid of ${bidAmount} placed successfully`,
-      };
-    } catch (error) {
-      console.error("Error during bid placement:", error);
-      throw new Error("Failed to place the bid. Please try again.");
-    } finally {
-      // Close context and browser to avoid resource leaks
-      await context.close();
-      await browser.close();
-    }
-  }
+    // Extract price
+    const price = await page.locator('div[class="price"]').textContent();
 
-  // Update bid prices
-  async updateBid(productUrl) {
-    const { browser, context } = await this.setupBrowser();
-  
-    try {
-      const page = await context.newPage();
-      await page.goto(productUrl);
-  
-      // Extract price and time remaining
-      const price = await page.locator("div.price").textContent();
-      console.log("PRICE:", price);
-  
-      const timeRemaining = await page
-        .locator('//span[contains(@class, "g-title")]/following-sibling::span')
-        .first()
-        .textContent();
-      console.log("TIME REMAINING:", timeRemaining);
-  
-      return {
-        productUrl,
-        price: price.trim(),
-        timeRemaining: timeRemaining.trim()
-      };
-    } catch (error) {
-      console.error("Error during bid update:", error);
-      return {
-        productUrl,
-        error: error.message
-      };
-    } finally {
-      await browser.close();
-    }
+    // Extract the time remaining for the auction
+    const timeRemaining = await page
+      .locator('//span[contains(@class, "g-title")]/following-sibling::span')
+      .first()
+      .textContent();
+
+    // Log the extracted details for confirmation
+    console.log("TITLE:", title);
+    console.log("PRICE:", price);
+    console.log("TIME REMAINING:", timeRemaining);
+
+    return {
+      productUrl,
+      title,
+      price: price.trim(),
+      images,
+      timeRemaining: timeRemaining.trim()
+    };
+  } catch (error) {
+    console.error("Error during bid update:", error);
+    return {
+      productUrl,
+      error: error.message
+    };
+  } finally {
+    await browser.close();
   }
+}
 
   async login(username, password) {
     const browser = await chromium.launch({ headless: false });
