@@ -11,10 +11,7 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Content-Type', 'Authorization'],
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'],
   credentials: true,
 };
 app.use(cors(corsOptions));
@@ -243,7 +240,8 @@ app.post('/update-bid-prices', async (req, res) => {
 });
 
 // Start the server
-const PORT = 5000;
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Server is running on http://127.0.0.1:${PORT}`);
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
+
