@@ -11,7 +11,7 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'],
+  origin: ['http://localhost:5173', 'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'],
   credentials: true,
 };
 app.use(cors(corsOptions));
