@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",
-    "@rollup/rollup-darwin-x64": "^4.31.0",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
