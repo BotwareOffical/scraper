@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
-    "postinstall": "playwright install chromium --with-deps"
-  },
+      "start": "PLAYWRIGHT_BROWSERS_PATH=$RENDER_PROJECT_DIR/node_modules/playwright node app.js"
+},
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
