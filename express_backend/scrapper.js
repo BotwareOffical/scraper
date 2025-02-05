@@ -1,8 +1,7 @@
-const puppeteer = require('puppeteer');
-const logger = require('pino')();
-const fs = require('fs');
-const path = require('path');
-const bidFilePath = path.resolve(__dirname, '../bids.json');
+const { chromium } = require("playwright");
+const logger = require("pino")();
+const fs = require("fs");
+const path = require("path");
 
 class BuyeeScraper {
   constructor() {
@@ -11,28 +10,13 @@ class BuyeeScraper {
 
   async setupBrowser() {
     try {
-      const browser = await puppeteer.launch({
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu'
-        ],
-        headless: 'new'
+      const browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox']
       });
-
-      const page = await browser.newPage();
-      await page.setViewport({ width: 1920, height: 1080 });
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-      await page.setExtraHTTPHeaders({
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive'
-      });
-
-      logger.info('Browser setup successfully');
-      return { browser, page };
+      const context = await browser.newContext();
+      logger.info("Browser context setup successfully");
+      return { browser, context };
     } catch (error) {
       logger.error(`Error setting up browser: ${error.message}`);
       throw error;
