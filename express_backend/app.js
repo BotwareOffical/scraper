@@ -11,12 +11,18 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: 'https://scraper-n5sxqhb3a-botwareofficals-projects.vercel.app',
-  credentials: true,
+  origin: function(origin, callback) {
+    // Allow all vercel.app subdomains
+    if (origin && origin.match(/.*\.vercel\.app$/)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: false // Set this to false since we're not using credentials
 };
-app.use(cors(corsOptions));
 
-// Add OPTIONS preflight handler
+app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // Middleware
