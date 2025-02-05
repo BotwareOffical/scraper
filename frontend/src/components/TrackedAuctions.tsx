@@ -94,7 +94,7 @@ const TrackedAuctions: React.FC = () => {
 
     try {
       // Use the update-bid-prices endpoint to refresh current prices
-      const response = await fetch('/api/update-bid-prices', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/update-bid-prices`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
