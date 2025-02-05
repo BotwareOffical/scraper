@@ -7,7 +7,6 @@
     "playwright": "^1.40.0"
   },
   "scripts": {
-    "start": "node app.js",
-    "sandbox": "node app.js"
+    "start": "node app.js"
   }
 }
