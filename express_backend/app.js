@@ -11,8 +11,15 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: ['http://localhost:5173', 'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'],
-  credentials: true,
+  origin: [
+    'http://localhost:5173',
+    'https://scraper-git-feature-tracked-auc-dc53f7-botwareofficals-projects.vercel.app',
+    'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 };
 app.use(cors(corsOptions));
 
@@ -22,6 +29,10 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const scraper = new BuyeeScraper();
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Place bid endpoint
 app.post('/place-bid', async (req, res) => {
