@@ -11,18 +11,12 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: function(origin, callback) {
-    // Allow all vercel.app subdomains
-    if (origin && origin.match(/.*\.vercel\.app$/)) {
-      callback(null, true);
-    } else {
-      callback(null, false);
-    }
-  },
-  credentials: false // Set this to false since we're not using credentials
+  origin: true, // Allow all origins
+  credentials: false
 };
 
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // Middleware
