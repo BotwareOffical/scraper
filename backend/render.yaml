@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: scraper-backend
+    name: buyee-scraper
     env: node
-    buildCommand: npm install
-    startCommand: node app.js
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: npm start
     envVars:
-      - key: PORT
-        value: 10000
+      - key: NODE_VERSION
+        value: 18.17.0
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: 0
