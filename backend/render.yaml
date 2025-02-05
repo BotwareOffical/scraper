@@ -1,11 +1,10 @@
 services:
   - type: web
     name: buyee-scraper
-    env: node
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: npm start
+    runtime: docker
+    plan: free
     envVars:
-      - key: NODE_VERSION
-        value: 18.17.0
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: 0
+      - key: PORT
+        value: 10000
+    buildCommand: npm install
+    startCommand: node app.js
