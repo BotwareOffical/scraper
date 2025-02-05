@@ -4,13 +4,10 @@
     "express": "^4.21.2",
     "morgan": "^1.10.0",
     "pino": "^9.6.0",
-    "puppeteer": "^21.0.0"
-  },
-  "engines": {
-    "node": ">=16.0.0"
+    "@playwright/test": "^1.40.0"
   },
   "scripts": {
     "start": "node app.js",
-    "build": "npm install"
+    "sandbox": "node app.js"
   }
 }
