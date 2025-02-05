@@ -1,4 +1,4 @@
-const { chromium } = require("playwright");
+const { chromium } = require('playwright-chromium');
 const logger = require("pino")();
 const fs = require("fs");
 const path = require("path");
@@ -9,29 +9,42 @@ class BuyeeScraper {
     this.baseUrl = "https://buyee.jp";
   }
 
-  // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({
+        headless: true,
+        chromiumSandbox: false,
+        args: [
+          '--disable-dev-shm-usage',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--no-first-run'
+        ]
+      });
+
       const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         extraHTTPHeaders: {
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Encoding": "gzip, deflate, br",
-          Connection: "keep-alive",
-        },
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive'
+        }
       });
-      logger.info("Browser context setup successfully");
+
+      logger.info('Browser context setup successfully');
       return { browser, context };
     } catch (error) {
       logger.error(`Error setting up browser: ${error.message}`);
       throw error;
     }
   }
+
+
+  
 
   // Scrape search results and save to search.json
   async scrapeSearchResults(
