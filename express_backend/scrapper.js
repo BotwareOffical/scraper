@@ -1,4 +1,4 @@
-const { chromium } = require("playwright");
+const puppeteer = require('puppeteer');
 const logger = require("pino")();
 const fs = require("fs");
 const path = require("path");
@@ -9,23 +9,21 @@ class BuyeeScraper {
     this.baseUrl = "https://buyee.jp";
   }
 
-  // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: true });
-      const context = await browser.newContext({
-        viewport: { width: 1920, height: 1080 },
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        extraHTTPHeaders: {
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Encoding": "gzip, deflate, br",
-          Connection: "keep-alive",
-        },
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
-      logger.info("Browser context setup successfully");
+      const context = await browser.newPage();
+      await context.setViewport({ width: 1920, height: 1080 });
+      await context.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive'
+      });
+      await context.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
       return { browser, context };
     } catch (error) {
       logger.error(`Error setting up browser: ${error.message}`);
@@ -33,30 +31,15 @@ class BuyeeScraper {
     }
   }
 
-  // Scrape search results and save to search.json
-  async scrapeSearchResults(
-    term,
-    minPrice = "",
-    maxPrice = "",
-    category = "23000",
-    totalPages = 1
-  ) {
+  async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = 1) {
     const { browser, context } = await this.setupBrowser();
     try {
       const allProducts = [];
 
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
-        const pageInstance = await context.newPage();
-
-        // Construct search URL
         let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
-
-        // Add category to the URL if provided
-        if (category) {
-          searchUrl += `/category/${category}`;
-        }
-
-        // Query params
+        if (category) searchUrl += `/category/${category}`;
+        
         const params = [];
         if (minPrice) params.push(`aucminprice=${minPrice}`);
         if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
@@ -65,57 +48,38 @@ class BuyeeScraper {
         if (params.length) searchUrl += `?${params.join("&")}`;
 
         logger.info(`Searching with URL: ${searchUrl}`);
-        await pageInstance.goto(searchUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 50000,
-        });
+        await context.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 50000 });
 
-        // Wait for items to load
         try {
-          await pageInstance.waitForSelector(".itemCard", { timeout: 10000 });
+          await context.waitForSelector('.itemCard', { timeout: 10000 });
         } catch {
           logger.warn(`No items found on page ${currentPage}. Skipping...`);
-          await pageInstance.close();
           continue;
         }
 
-        const items = await pageInstance.$$(".itemCard");
-        logger.info(`Found ${items.length} items on page ${currentPage}`);
+        const items = await context.evaluate(() => {
+          return Array.from(document.querySelectorAll('.itemCard')).map(item => {
+            const titleEl = item.querySelector('.itemCard__itemName a');
+            const imgEl = item.querySelector('.g-thumbnail__image');
+            const priceEl = item.querySelector('.g-price');
+            
+            let url = titleEl?.href || null;
+            if (url && !url.startsWith('http')) {
+              url = 'https://buyee.jp' + url;
+            }
 
-        for (const item of items) {
-          const titleElement = await item.$(".itemCard__itemName a");
-          const title = titleElement
-            ? await titleElement.innerText()
-            : "No Title";
-          let url = titleElement
-            ? await titleElement.getAttribute("href")
-            : null;
-          if (!url) continue;
-          if (!url.startsWith("http")) url = `${this.baseUrl}${url}`;
+            return {
+              title: titleEl?.textContent.trim() || 'No Title',
+              url,
+              images: imgEl ? [(imgEl.dataset.src || imgEl.src)?.split('?')[0]] : [],
+              price: priceEl?.textContent.trim() || 'Price Not Available'
+            };
+          }).filter(item => item.url);
+        });
 
-          const imgElement = await item.$(".g-thumbnail__image");
-          const imgSrc = imgElement
-            ? (await imgElement.getAttribute("data-src")) ||
-              (await imgElement.getAttribute("src"))
-            : null;
-
-          const priceElement = await item.$(".g-price");
-          const price = priceElement
-            ? await priceElement.innerText()
-            : "Price Not Available";
-
-          allProducts.push({
-            title,
-            price,
-            url,
-            images: imgSrc ? [imgSrc.split("?")[0]] : [],
-          });
-        }
-
-        await pageInstance.close(); // Close the page after processing
+        allProducts.push(...items);
       }
 
-      // Save all products to search.json
       const filePath = path.join(__dirname, "search.json");
       fs.writeFileSync(filePath, JSON.stringify(allProducts, null, 2), "utf-8");
       logger.info(`Saved all search results to ${filePath}`);
@@ -129,31 +93,18 @@ class BuyeeScraper {
     }
   }
 
-  // Scrape additional details and update search.json
   async scrapeDetails(urls = []) {
     const { browser, context } = await this.setupBrowser();
-
     try {
       const detailedProducts = [];
 
       for (const productUrl of urls) {
-        const productPage = await context.newPage();
-        
         try {
-          console.log(`Navigating to URL: ${productUrl}`);
-          
-          // More aggressive navigation options
-          await productPage.goto(productUrl, {
-            waitUntil: 'load',
-            timeout: 45000
-          });
+          await context.goto(productUrl, { waitUntil: 'networkidle0', timeout: 45000 });
+          await context.waitForTimeout(3000);
 
-          // Additional wait for network to settle
-          await productPage.waitForTimeout(3000);
-
-          // Extract product details directly from the page
-          const productDetails = await productPage.evaluate(() => {
-            // More aggressive title extraction
+          const productDetails = await context.evaluate(() => {
+            // Title extraction
             let title = 'No Title';
             const titleElements = [
               document.querySelector('h1'),
@@ -161,14 +112,14 @@ class BuyeeScraper {
               document.querySelector('.itemInfo__name'),
               document.title
             ];
-            for (const titleEl of titleElements) {
-              if (titleEl && titleEl.textContent) {
-                title = titleEl.textContent.trim();
+            for (const el of titleElements) {
+              if (el?.textContent) {
+                title = el.textContent.trim();
                 break;
               }
             }
 
-            // More aggressive price extraction
+            // Price extraction
             let price = 'Price Not Available';
             const priceElements = [
               document.querySelector('.current_price .price'),
@@ -176,47 +127,39 @@ class BuyeeScraper {
               document.querySelector('.itemPrice'),
               document.querySelector('.current_price .g-text--attention')
             ];
-            for (const priceEl of priceElements) {
-              if (priceEl && priceEl.textContent) {
-                price = priceEl.textContent.trim();
+            for (const el of priceElements) {
+              if (el?.textContent) {
+                price = el.textContent.trim();
                 break;
               }
             }
 
-            // More aggressive time remaining extraction
+            // Time remaining extraction
             let time_remaining = 'Time Not Available';
             const timeElements = [
               document.querySelector('.itemInformation__infoItem .g-text--attention'),
               document.querySelector('.itemInfo__time span'),
-              document.querySelector('.timeLeft'),
-              document.querySelector('.g-text--attention'),
-              document.querySelector('.itemInformation .g-text')
+              document.querySelector('.timeLeft')
             ];
-            for (const timeEl of timeElements) {
-              if (timeEl && timeEl.textContent) {
-                time_remaining = timeEl.textContent.trim();
+            for (const el of timeElements) {
+              if (el?.textContent) {
+                time_remaining = el.textContent.trim();
                 break;
               }
             }
 
-            // More comprehensive thumbnail extraction
+            // Thumbnail extraction
             let thumbnailUrl = null;
             const thumbnailSelectors = [
               '.flexslider .slides img',
-              '.flex-control-nav .slides img',
               '.itemImg img',
               '.mainImage img',
-              '.g-thumbnail__image',
-              '.itemPhoto img',
-              'img.primary-image'
+              '.g-thumbnail__image'
             ];
-
             for (const selector of thumbnailSelectors) {
-              const thumbnailElement = document.querySelector(selector);
-              if (thumbnailElement) {
-                thumbnailUrl = thumbnailElement.src || 
-                              thumbnailElement.getAttribute('data-src') || 
-                              thumbnailElement.getAttribute('data-original');
+              const el = document.querySelector(selector);
+              if (el) {
+                thumbnailUrl = el.src || el.dataset.src || el.dataset.original;
                 if (thumbnailUrl) {
                   thumbnailUrl = thumbnailUrl.split('?')[0];
                   break;
@@ -233,13 +176,9 @@ class BuyeeScraper {
             };
           });
 
-          console.log('Extracted Product Details:', JSON.stringify(productDetails, null, 2));
-
           detailedProducts.push(productDetails);
-        } catch (pageError) {
-          console.error(`Error scraping details for ${productUrl}:`, pageError);
-        } finally {
-          await productPage.close();
+        } catch (error) {
+          console.error(`Error scraping details for ${productUrl}:`, error);
         }
       }
 
@@ -253,60 +192,48 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext({ storageState: "login.json" });
-
+    const browser = await puppeteer.launch({ headless: false });
+    const context = await browser.newPage();
+    
     try {
-      const page = await context.newPage();
-      await page.goto(productUrl);
+      const cookies = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+      await context.setCookie(...cookies);
+      
+      await context.goto(productUrl);
+      await context.waitForTimeout(2000);
 
-      await page.waitForTimeout(2000);
-
-      // Check if the "Bid Now" button exists
-      const bidNowButton = page.locator("#bidNow");
-      if (!(await bidNowButton.count())) {
-        console.warn('No "Bid Now" button found on the page');
+      const bidButton = await context.$('#bidNow');
+      if (!bidButton) {
         return {
           success: false,
-          message: 'No "Bid Now" button found on the page',
+          message: 'No "Bid Now" button found'
         };
       }
 
-      // Extract product details
-      const productDetails = await page.evaluate(() => {
-        // Title extraction
+      const productDetails = await context.evaluate(() => {
         let title = 'No Title';
         const titleElements = [
           document.querySelector('h1'),
           document.querySelector('.itemName'),
-          document.querySelector('.itemInfo__name'),
-          document.title
+          document.querySelector('.itemInfo__name')
         ];
-        for (const titleEl of titleElements) {
-          if (titleEl && titleEl.textContent) {
-            title = titleEl.textContent.trim();
+        for (const el of titleElements) {
+          if (el?.textContent) {
+            title = el.textContent.trim();
             break;
           }
         }
 
-        // Thumbnail extraction
         let thumbnailUrl = null;
-        const thumbnailSelectors = [
+        const imgElements = [
           '.flexslider .slides img',
-          '.flex-control-nav .slides img',
           '.itemImg img',
-          '.mainImage img',
-          '.g-thumbnail__image',
-          '.itemPhoto img',
-          'img.primary-image'
-        ];
-
-        for (const selector of thumbnailSelectors) {
-          const thumbnailElement = document.querySelector(selector);
-          if (thumbnailElement) {
-            thumbnailUrl = thumbnailElement.src || 
-                           thumbnailElement.getAttribute('data-src') || 
-                           thumbnailElement.getAttribute('data-original');
+          '.mainImage img'
+        ].map(sel => document.querySelector(sel));
+        
+        for (const el of imgElements) {
+          if (el) {
+            thumbnailUrl = el.src || el.dataset.src;
             if (thumbnailUrl) {
               thumbnailUrl = thumbnailUrl.split('?')[0];
               break;
@@ -314,73 +241,36 @@ class BuyeeScraper {
           }
         }
 
-        // Time remaining extraction
-        let timeRemaining = 'Time Not Available';
-        const timeElements = [
-          document.querySelector('.itemInformation__infoItem .g-text--attention'),
-          document.querySelector('.itemInfo__time span'),
-          document.querySelector('.timeLeft'),
-          document.querySelector('.g-text--attention'),
-          document.querySelector('.itemInformation .g-text')
-        ];
-        for (const timeEl of timeElements) {
-          if (timeEl && timeEl.textContent) {
-            timeRemaining = timeEl.textContent.trim();
-            break;
-          }
-        }
+        let timeRemaining = document.querySelector('.itemInfo__time span')?.textContent || 'Time Not Available';
 
         return { title, thumbnailUrl, timeRemaining };
       });
 
-      // Extract the time remaining for the auction
-      const timeRemaining = await page
-        .locator('//span[contains(@class, "g-title")]/following-sibling::span')
-        .first()
-        .textContent();
+      await bidButton.click();
+      const bidInput = await context.$('input[name="bidYahoo[price]"]');
+      await bidInput.click({ clickCount: 3 });
+      await bidInput.type(bidAmount.toString());
 
-      // Click the "Bid Now" button
-      await bidNowButton.click();
-
-      // Clear and fill the bid amount (convert to string)
-      const bidInput = page.locator('input[name="bidYahoo[price]"]');
-      await bidInput.clear();
-      await bidInput.fill(bidAmount.toString());
-
-      // Uncomment if a confirmation step is required
-      // await page.locator("#bid_submit").click();
-
-      // Save bid details to JSON file
       const bidDetails = {
         productUrl,
         bidAmount,
-        timestamp: timeRemaining.trim(),
+        timestamp: productDetails.timeRemaining.trim(),
         title: productDetails.title,
         thumbnailUrl: productDetails.thumbnailUrl
       };
 
-      let bidFileData = { bids: [] }; // Default structure for the JSON file
-
-      // Check if the JSON file exists and read its contents
+      let bidFileData = { bids: [] };
       if (fs.existsSync(bidFilePath)) {
-        const fileContent = fs.readFileSync(bidFilePath, "utf8");
-        bidFileData = JSON.parse(fileContent);
+        bidFileData = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
       }
 
-      // Check if the product URL already exists in the file
-      const existingIndex = bidFileData.bids.findIndex(
-        (bid) => bid.productUrl === productUrl
-      );
-
+      const existingIndex = bidFileData.bids.findIndex(bid => bid.productUrl === productUrl);
       if (existingIndex !== -1) {
-        // Update existing entry
         bidFileData.bids[existingIndex] = bidDetails;
       } else {
-        // Add new entry
         bidFileData.bids.push(bidDetails);
       }
 
-      // Write the updated structure to the file
       fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
 
       return {
@@ -392,90 +282,73 @@ class BuyeeScraper {
       console.error("Error during bid placement:", error);
       throw new Error("Failed to place the bid. Please try again.");
     } finally {
-      // Close context and browser to avoid resource leaks
-      await context.close();
       await browser.close();
     }
   }
 
-  // Update bid prices
   async updateBid(productUrl) {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: "login.json" });
-
+    const { browser, context } = await this.setupBrowser();
     try {
-      const page = await context.newPage();
-      await page.goto(productUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
+      await context.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      const data = await context.evaluate(() => {
+        let price = 'Price Not Available';
+        const priceElements = [
+          document.querySelector('.current_price .price'),
+          document.querySelector('.price'),
+          document.querySelector('.itemPrice')
+        ];
+        for (const el of priceElements) {
+          if (el?.textContent) {
+            price = el.textContent.trim();
+            break;
+          }
+        }
+
+        let timeRemaining = 'Time Not Available';
+        const timeElements = [
+          document.querySelector('.itemInformation__infoItem .g-text--attention'),
+          document.querySelector('.itemInfo__time span'),
+          document.querySelector('.timeLeft')
+        ];
+        for (const el of timeElements) {
+          if (el?.textContent) {
+            timeRemaining = el.textContent.trim();
+            break;
+          }
+        }
+
+        return { price, timeRemaining };
       });
-
-      // Extract price with multiple selectors
-      let price = 'Price Not Available';
-      const priceElements = [
-        page.locator('.current_price .price'),
-        page.locator('.price'),
-        page.locator('.itemPrice')
-      ];
-
-      for (const priceElement of priceElements) {
-        try {
-          const priceText = await priceElement.textContent();
-          if (priceText) {
-            price = priceText.trim();
-            break;
-          }
-        } catch {}
-      }
-
-      // Extract time remaining with multiple selectors
-      let timeRemaining = 'Time Not Available';
-      const timeRemainingElements = [
-        page.locator('.itemInformation__infoItem .g-text--attention'),
-        page.locator('.itemInfo__time span'),
-        page.locator('.timeLeft'),
-        page.locator('.g-text--attention')
-      ];
-
-      for (const timeElement of timeRemainingElements) {
-        try {
-          const timeText = await timeElement.textContent();
-          if (timeText) {
-            timeRemaining = timeText.trim();
-            break;
-          }
-        } catch {}
-      }
 
       return {
         productUrl,
-        price: price.trim(),
-        timeRemaining: timeRemaining.trim()
+        price: data.price,
+        timeRemaining: data.timeRemaining
       };
     } catch (error) {
       console.error("Error during bid update:", error);
-      return {
-        productUrl,
-        error: error.message
-      };
+      return { productUrl, error: error.message };
     } finally {
-      await context.close();
       await browser.close();
     }
   }
 
   async login(username, password) {
-    const browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    await page.goto("https://buyee.jp/signup/login");
-    await page.locator("#login_mailAddress").fill(username);
-    await page.locator("#login_password").fill(password);
-    await page.getByRole("link", { name: "Login" }).click();
-    await page.pause();
-    await context.storageState({ path: "login.json" });
-    await browser.close();
+    const browser = await puppeteer.launch({ headless: false });
+    const page = await browser.newPage();
+    try {
+      await page.goto("https://buyee.jp/signup/login");
+      await page.type("#login_mailAddress", username);
+      await page.type("#login_password", password);
+      await page.click('a[data-testid="loginBtn"]');
+      await page.waitForNavigation();
+      
+      const cookies = await page.cookies();
+      fs.writeFileSync('login.json', JSON.stringify(cookies, null, 2));
+    } finally {
+      await browser.close();
+    }
   }
 }
 
