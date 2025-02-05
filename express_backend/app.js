@@ -9,23 +9,27 @@ const bidFilePath = path.resolve(__dirname, '../bids.json');
 
 const app = express();
 
+// Middleware configuration
 app.use(cors({
-  origin: '*',                // Allow all origins
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],  // Allow all methods
-  allowedHeaders: ['*'],      // Allow all headers
-  credentials: true,          // Allow credentials
-  preflightContinue: true,   // Pass the preflight response to the next handler
-  optionsSuccessStatus: 204   // Some legacy browsers (IE11, various SmartTVs) choke on 204
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['*'],
+  credentials: true,
+  preflightContinue: true,
+  optionsSuccessStatus: 204
 }));
 
-// Additional headers for extra CORS support
+// Body parser middleware - IMPORTANT: This must come before your routes
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Additional CORS headers
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', '*');
   res.header('Access-Control-Allow-Credentials', true);
   
-  // Handle OPTIONS method
   if (req.method === 'OPTIONS') {
     return res.status(204).send();
   }
@@ -33,6 +37,7 @@ app.use((req, res, next) => {
 });
 
 const scraper = new BuyeeScraper();
+
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -80,25 +85,40 @@ app.post('/place-bid', async (req, res) => {
   }
 });
 
-// Search endpoint
 app.post('/search', async (req, res) => {
-  console.log('Search endpoint hit with data:', req.body);
+  console.log('Search endpoint hit with body:', req.body);
   
   try {
-    const { terms: searchTerms = [] } = req.body;
-    console.log('Received search request with data:', req.body);
-
-    if (!searchTerms.length) {
-      console.warn('No search terms provided in request');
-      return res.status(400).json({ error: 'No search terms provided' });
+    // Validate request body
+    if (!req.body || !req.body.terms) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Missing required field: terms' 
+      });
     }
 
+    const { terms: searchTerms = [] } = req.body;
+    
+    // Validate searchTerms array
+    if (!Array.isArray(searchTerms) || searchTerms.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Search terms must be a non-empty array' 
+      });
+    }
+
+    console.log('Processing search terms:', searchTerms);
+
     const results = [];
-
     for (const searchTerm of searchTerms) {
-      const { term = '', minPrice = '', maxPrice = '', category='', page=0 } = searchTerm;
+      const { term = '', minPrice = '', maxPrice = '', category = '', page = 1 } = searchTerm;
 
-      // Basic search logic
+      // Basic validation of individual search term
+      if (!term) {
+        console.warn('Empty search term encountered');
+        continue;
+      }
+
       const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice, category, page);
       console.log(`Found ${termResults.length} results for term: ${term}`);
       results.push(...termResults);
@@ -114,9 +134,14 @@ app.post('/search', async (req, res) => {
     });
   } catch (error) {
     console.error('Search error:', error.message);
-    res.status(500).json({ error: 'Failed to search products' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to search products',
+      details: error.message 
+    });
   }
 });
+
 
 // Details Endpoint
 app.post('/details', async (req, res) => {
