@@ -29,7 +29,6 @@ const BuyeeSearch = () => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({ 
           terms: searchTerms,
           page: 1

@@ -11,24 +11,27 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: '*',  // Allow all origins
+  origin: [
+    'http://localhost:5173',
+    'https://scraper-mqigm6jml-botwareofficals-projects.vercel.app', // Add your current Vercel URL
+    'https://scraper-1-jce5.onrender.com'
+  ],
   methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
-  credentials: true
+  credentials: false // Change to false since we're using a different domain
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
-// Middleware
-app.use(logger('dev'));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Add this middleware to handle preflight
+// Add explicit OPTIONS handling for preflight requests
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Credentials', true);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
