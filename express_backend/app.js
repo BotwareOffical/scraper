@@ -13,15 +13,19 @@ const app = express();
 const corsOptions = {
   origin: [
     'http://localhost:5173',
-    'https://scraper-git-feature-tracked-auc-dc53f7-botwareofficals-projects.vercel.app',
-    'https://scraper-cs94yh0jt-botwareofficals-projects.vercel.app'
+    'https://scraper-nmr0jej0j-botwareofficals-projects.vercel.app', // Add your new Vercel URL
+    'https://scraper-1-jce5.onrender.com'
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   exposedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 };
+
 app.use(cors(corsOptions));
+
+// Add OPTIONS handling for preflight requests
+app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(logger('dev'));
