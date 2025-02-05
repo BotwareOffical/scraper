@@ -9,16 +9,28 @@ const bidFilePath = path.resolve(__dirname, '../bids.json');
 
 const app = express();
 
-// Configure CORS with more permissive settings
-const corsOptions = {
-  origin: true, // Allow all origins temporarily for debugging
-  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
-  credentials: false
-};
+app.use(cors({
+  origin: '*',                // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],  // Allow all methods
+  allowedHeaders: ['*'],      // Allow all headers
+  credentials: true,          // Allow credentials
+  preflightContinue: true,   // Pass the preflight response to the next handler
+  optionsSuccessStatus: 204   // Some legacy browsers (IE11, various SmartTVs) choke on 204
+}));
 
-app.use(cors(corsOptions));
-
+// Additional headers for extra CORS support
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Allow-Credentials', true);
+  
+  // Handle OPTIONS method
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send();
+  }
+  next();
+});
 
 const scraper = new BuyeeScraper();
 
