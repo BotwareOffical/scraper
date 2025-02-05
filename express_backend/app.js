@@ -11,29 +11,14 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'https://scraper-mqigm6jml-botwareofficals-projects.vercel.app', // Add your current Vercel URL
-    'https://scraper-1-jce5.onrender.com'
-  ],
+  origin: true, // Allow all origins temporarily for debugging
   methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
-  credentials: false // Change to false since we're using a different domain
+  credentials: false
 };
 
 app.use(cors(corsOptions));
 
-// Add explicit OPTIONS handling for preflight requests
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 const scraper = new BuyeeScraper();
 
@@ -85,12 +70,8 @@ app.post('/place-bid', async (req, res) => {
 
 // Search endpoint
 app.post('/search', async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    return res.json({ message: 'OK' });
-  }
-
+  console.log('Search endpoint hit with data:', req.body);
+  
   try {
     const { terms: searchTerms = [] } = req.body;
     console.log('Received search request with data:', req.body);
