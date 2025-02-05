@@ -11,10 +11,13 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: '*',
+  origin: 'https://scraper-n5sxqhb3a-botwareofficals-projects.vercel.app',
   credentials: true,
 };
 app.use(cors(corsOptions));
+
+// Add OPTIONS preflight handler
+app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(logger('dev'));
