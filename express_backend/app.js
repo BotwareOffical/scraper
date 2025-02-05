@@ -11,26 +11,26 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'https://scraper-nmr0jej0j-botwareofficals-projects.vercel.app', // Add your new Vercel URL
-    'https://scraper-1-jce5.onrender.com'
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  exposedHeaders: ['Content-Type', 'Authorization'],
+  origin: '*',  // Allow all origins
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
   credentials: true
 };
 
 app.use(cors(corsOptions));
-
-// Add OPTIONS handling for preflight requests
 app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Add this middleware to handle preflight
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Credentials', true);
+  next();
+});
 
 const scraper = new BuyeeScraper();
 
