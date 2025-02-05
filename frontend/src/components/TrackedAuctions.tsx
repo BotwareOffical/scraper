@@ -23,7 +23,7 @@ const TrackedAuctions: React.FC = () => {
       
       // First, fetch the bids to get tracked URLs
       console.log('Fetching bids from /api/bids...');
-      const bidsResponse = await fetch('/api/bids');
+      const bidsResponse = await fetch(`${import.meta.env.VITE_API_URL}/bids`);
       const bidsData = await bidsResponse.json() as Bid[];
       console.log('Received bids data:', JSON.stringify(bidsData, null, 2));
       
@@ -42,8 +42,8 @@ const TrackedAuctions: React.FC = () => {
       console.log('Fetching product details for tracked URLs:', 
         trackedBids.map(bid => bid.productUrl));
       
-      const productsResponse = await fetch('/api/details', {
-        method: 'POST',
+        const productsResponse = await fetch(`${import.meta.env.VITE_API_URL}/details`, {
+          method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },

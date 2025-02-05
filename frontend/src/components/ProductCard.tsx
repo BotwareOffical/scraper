@@ -18,7 +18,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     try {
       // First, place the bid
-      const bidResponse = await fetch('/api/place-bid', {
+      const bidResponse = await fetch(`${import.meta.env.VITE_API_URL}/place-bid`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -35,7 +35,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       }
 
       // If bid is successful, update tracking with fixed amount
-      const trackResponse = await fetch('/api/update-bid', {
+      const trackResponse = await fetch(`${import.meta.env.VITE_API_URL}/update-bid`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

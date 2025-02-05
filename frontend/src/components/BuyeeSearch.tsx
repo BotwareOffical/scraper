@@ -58,13 +58,12 @@ const BuyeeSearch = () => {
     setIsLoading(true)
     
     try {
-      const response = await fetch('/api/search', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({ 
           terms: currentSearchTerms,
           page: nextPage
