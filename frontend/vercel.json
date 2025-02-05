@@ -1,8 +1,15 @@
-{  
+{
   "framework": "vite",
-  "buildCommand": "vite build",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { 
+      "src": "/api/(.*)", 
+      "dest": "https://scraper-1-jce5.onrender.com/$1" 
+    },
+    { 
+      "src": "/(.*)", 
+      "dest": "/index.html" 
+    }
   ]
 }
