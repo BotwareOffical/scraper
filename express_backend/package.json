@@ -8,6 +8,6 @@
   },
   "scripts": {
     "start": "node app.js",
-    "build": "npm run build"
+    "build": "npm install"
   }
 }
