@@ -67,12 +67,7 @@ app.post('/place-bid', async (req, res) => {
 
 // Search endpoint
 app.post('/search', async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    return res.json({ message: 'OK' });
-  }
-
+  console.log('Received search request');
   try {
     const { terms: searchTerms = [] } = req.body;
     console.log('Received search request with data:', req.body);
