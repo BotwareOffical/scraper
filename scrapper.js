@@ -11,12 +11,16 @@ class BuyeeScraper {
 
   async setupBrowser() {
     try {
+      console.log('Starting browser setup');
+      console.log('Playwright core path:', require.resolve('playwright-core'));
+      console.log('Playwright browser paths:', JSON.stringify(process.env, null, 2));
+  
       const browser = await chromium.launch({
-        headless: true,
-        // Explicitly tell Playwright to use default browser installation
-        executablePath: null
+        headless: true
       });
       
+      console.log('Browser launched successfully');
+  
       const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -31,7 +35,7 @@ class BuyeeScraper {
       return { browser, context };
     } catch (error) {
       console.error('Detailed browser launch error:', error);
-      console.error('Error stack:', error.stack);
+      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
       throw error;
     }
   }
