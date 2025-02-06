@@ -1,1 +1,1 @@
-web: node detect-browsers.js && node app.js
+web: node detect-browsers.js && npm install && npx playwright install chromium && node app.js
