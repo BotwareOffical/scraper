@@ -8,54 +8,42 @@ class BuyeeScraper {
   constructor() {
     this.baseUrl = "https://buyee.jp";
   }
-  
+
   async setupBrowser() {
     try {
-      // Potential browser paths to check
-      const possiblePaths = [
+      const paths = [
         '/app/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome',
-        '/app/.local-browsers/chromium-1155/chrome-linux/chrome',
-        path.join(process.cwd(), 'node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome')
+        '/app/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/headless_shell',
+        path.join(process.cwd(), 'node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome'),
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser'
       ];
   
-      console.log('Checking possible browser paths:', possiblePaths);
+      console.log('Potential browser paths:', paths);
   
-      // Log contents of potential directories
-      possiblePaths.forEach(dir => {
+      let browserPath = null;
+      for (const path of paths) {
         try {
-          console.log(`Contents of ${path.dirname(dir)}:`, 
-            fs.existsSync(path.dirname(dir)) 
-              ? fs.readdirSync(path.dirname(dir)) 
-              : 'Directory does not exist'
-          );
+          if (fs.existsSync(path)) {
+            console.log(`Found browser executable at: ${path}`);
+            browserPath = path;
+            break;
+          }
         } catch (err) {
-          console.error(`Error checking directory ${dir}:`, err);
+          console.error(`Error checking path ${path}:`, err);
         }
-      });
+      }
   
       const browser = await chromium.launch({
-        headless: true
-        // Do NOT specify executablePath
+        headless: true,
+        ...(browserPath ? { executablePath: browserPath } : {})
       });
-      
+  
       console.log('Browser launched successfully');
-  
-      const context = await browser.newContext({
-        viewport: { width: 1920, height: 1080 },
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        extraHTTPHeaders: {
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Encoding": "gzip, deflate, br",
-          Connection: "keep-alive",
-        },
-      });
-  
-      return { browser, context };
+      return { browser, context: await browser.newContext() };
     } catch (error) {
       console.error('Detailed browser launch error:', error);
       console.error('Error stack:', error.stack);
-      console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
       throw error;
     }
   }

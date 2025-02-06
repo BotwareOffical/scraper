@@ -68,29 +68,49 @@ app.post('/place-bid', async (req, res) => {
 });
 
 // Search endpoint
-app.post('/search', async (req, res) => {
-  console.log('Received search request');
+app.post('/search', async (req, res, next) => {
   try {
+    console.log('Received search request');
     const { terms: searchTerms = [] } = req.body;
     console.log('Received search request with data:', req.body);
 
     if (!searchTerms.length) {
-      console.warn('No search terms provided in request');
-      return res.status(400).json({ error: 'No search terms provided' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'No search terms provided' 
+      });
     }
 
     const results = [];
 
     for (const searchTerm of searchTerms) {
-      const { term = '', minPrice = '', maxPrice = '', category='', page=0 } = searchTerm;
+      const { 
+        term = '', 
+        minPrice = '', 
+        maxPrice = '', 
+        category = '', 
+        page = 0 
+      } = searchTerm;
 
-      // Basic search logic
-      const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice, category, page);
-      console.log(`Found ${termResults.length} results for term: ${term}`);
-      results.push(...termResults);
+      try {
+        // Basic search logic with error handling for individual search terms
+        const termResults = await scraper.scrapeSearchResults(
+          term, 
+          minPrice, 
+          maxPrice, 
+          category, 
+          page
+        );
+        
+        console.log(`Found ${termResults.length} results for term: ${term}`);
+        results.push(...termResults);
 
-      // Avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Avoid rate limiting
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } catch (termError) {
+        console.error(`Error searching for term ${term}:`, termError);
+        // Optionally, you can choose to continue or break based on your requirements
+      }
     }
 
     res.json({
@@ -99,8 +119,8 @@ app.post('/search', async (req, res) => {
       count: results.length,
     });
   } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(500).json({ error: 'Failed to search products' });
+    console.error('Search error:', error);
+    next(error); // Pass to global error handler
   }
 });
 
@@ -235,6 +255,21 @@ app.post('/update-bid-prices', async (req, res) => {
     });
   }
 });
+
+// Add this at the end of your app.js, before app.listen()
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    error: 'An unexpected error occurred',
+    message: err.message || 'Internal server error'
+  });
+});
+// Ensure unhandled promise rejections are logged
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 
 // Start the server
 const PORT = process.env.PORT || 10000;
