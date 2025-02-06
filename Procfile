@@ -1,1 +1,1 @@
-web: node app.js
+web: node detect-browsers.js && node app.js
