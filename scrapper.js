@@ -8,31 +8,40 @@ class BuyeeScraper {
   constructor() {
     this.baseUrl = "https://buyee.jp";
   }
+  
+async setupBrowser() {
+  try {
+    // Add verbose logging
+    console.log('Attempting to launch browser');
+    console.log('Playwright executable paths:', JSON.stringify(process.env, null, 2));
 
-  // Setup browser and context
-  async setupBrowser() {
-    try {
-      const browser = await chromium.launch({ headless: true });
-      const context = await browser.newContext({
-        viewport: { width: 1920, height: 1080 },
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        extraHTTPHeaders: {
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Encoding": "gzip, deflate, br",
-          Connection: "keep-alive",
-        },
-      });
-      logger.info("Browser context setup successfully");
-      return { browser, context };
-    } catch (error) {
-      logger.error(`Error setting up browser: ${error.message}`);
-      throw error;
-    }
+    const browser = await chromium.launch({
+      headless: true,
+      // Remove executablePath
+    });
+
+    console.log('Browser launched successfully');
+
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      extraHTTPHeaders: {
+        "Accept-Language": "en-US,en;q=0.9",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        Connection: "keep-alive",
+      },
+    });
+
+    return { browser, context };
+  } catch (error) {
+    // Enhanced error logging
+    console.error('Detailed browser setup error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Environment details:', JSON.stringify(process.env, null, 2));
+    throw error;
   }
-
+}
   // Scrape search results and save to search.json
   async scrapeSearchResults(
     term,

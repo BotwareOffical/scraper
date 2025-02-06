@@ -4,14 +4,15 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install-deps && npx playwright install chromium"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
     "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
     "morgan": "^1.10.0",
-    "playwright": "^1.42.1",
-    "pino": "^8.19.0"
+    "pino": "^8.19.0",
+    "playwright": "^1.50.1",
+    "playwright-core": "^1.50.1"
   }
 }
