@@ -11,39 +11,35 @@ class BuyeeScraper {
 
   async setupBrowser() {
     try {
-      const paths = [
-        '/app/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome',
-        '/app/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/headless_shell',
-        path.join(process.cwd(), 'node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome'),
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser'
-      ];
-  
-      console.log('Potential browser paths:', paths);
-  
-      let browserPath = null;
-      for (const path of paths) {
-        try {
-          if (fs.existsSync(path)) {
-            console.log(`Found browser executable at: ${path}`);
-            browserPath = path;
-            break;
-          }
-        } catch (err) {
-          console.error(`Error checking path ${path}:`, err);
-        }
-      }
+      console.log('Attempting to launch browser');
+      console.log('Playwright paths:', {
+        cwd: process.cwd(),
+        env: process.env
+      });
   
       const browser = await chromium.launch({
         headless: true,
-        ...(browserPath ? { executablePath: browserPath } : {})
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage'
+        ]
       });
   
       console.log('Browser launched successfully');
-      return { browser, context: await browser.newContext() };
+      return { 
+        browser, 
+        context: await browser.newContext({
+          viewport: { width: 1920, height: 1080 }
+        }) 
+      };
     } catch (error) {
-      console.error('Detailed browser launch error:', error);
-      console.error('Error stack:', error.stack);
+      console.error('Browser launch error:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       throw error;
     }
   }

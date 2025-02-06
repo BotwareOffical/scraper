@@ -265,11 +265,11 @@ app.use((err, req, res, next) => {
     message: err.message || 'Internal server error'
   });
 });
-// Ensure unhandled promise rejections are logged
+
+// Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
 
 // Start the server
 const PORT = process.env.PORT || 10000;

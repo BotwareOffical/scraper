@@ -1,1 +1,1 @@
-web: node app.js
+web: npx playwright install-deps && node app.js

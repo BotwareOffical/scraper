@@ -1,10 +1,6 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "main": "app.js",
   "scripts": {
-    "start": "node app.js",
-    "postinstall": "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 npx playwright install chromium"
+    "postinstall": "npx playwright install-deps && npx playwright install chromium"
   },
   "dependencies": {
     "body-parser": "^1.20.2",
@@ -14,5 +10,8 @@
     "pino": "^8.19.0",
     "playwright": "^1.50.1",
     "playwright-core": "^1.50.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
