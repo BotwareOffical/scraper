@@ -88,8 +88,7 @@ app.post('/search', async (req, res, next) => {
         term = '', 
         minPrice = '', 
         maxPrice = '', 
-        category = '', 
-        page = 0 
+        category = ''
       } = searchTerm;
 
       try {
@@ -98,8 +97,7 @@ app.post('/search', async (req, res, next) => {
           term, 
           minPrice, 
           maxPrice, 
-          category, 
-          page
+          category
         );
         
         console.log(`Found ${termResults.length} results for term: ${term}`);
