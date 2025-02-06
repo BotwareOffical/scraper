@@ -11,10 +11,10 @@ class BuyeeScraper {
 
   async setupBrowser() {
     try {
-      console.log('Attempting to launch browser');
-      console.log('Playwright paths:', {
-        cwd: process.cwd(),
-        env: process.env
+      console.log('Current environment:', {
+        platform: process.platform,
+        arch: process.arch,
+        version: process.version
       });
   
       const browser = await chromium.launch({
@@ -34,8 +34,7 @@ class BuyeeScraper {
         }) 
       };
     } catch (error) {
-      console.error('Browser launch error:', error);
-      console.error('Error details:', {
+      console.error('Detailed browser launch error:', {
         name: error.name,
         message: error.message,
         stack: error.stack

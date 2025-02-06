@@ -7,6 +7,7 @@
   },
   "scripts": {
     "start": "node app.js",
+    "prestart": "npx playwright install-deps chromium",
     "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
