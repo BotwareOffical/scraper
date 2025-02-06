@@ -253,7 +253,7 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -465,7 +465,7 @@ class BuyeeScraper {
   }
 
   async login(username, password) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
 
