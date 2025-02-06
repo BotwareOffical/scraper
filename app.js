@@ -127,7 +127,7 @@ app.post('/search', async (req, res, next) => {
 // Details Endpoint
 app.post('/details', async (req, res) => {
   try {
-    const { urls = [] } a= req.body;
+    const { urls = [] } = req.body;
 
     if (!urls.length) {
       return res.status(400).json({ 
