@@ -8,15 +8,34 @@ class BuyeeScraper {
   constructor() {
     this.baseUrl = "https://buyee.jp";
   }
-
+  
   async setupBrowser() {
     try {
-      console.log('Starting browser setup');
-      console.log('Playwright core path:', require.resolve('playwright-core'));
-      console.log('Playwright browser paths:', JSON.stringify(process.env, null, 2));
+      // Potential browser paths to check
+      const possiblePaths = [
+        '/app/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome',
+        '/app/.local-browsers/chromium-1155/chrome-linux/chrome',
+        path.join(process.cwd(), 'node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome')
+      ];
+  
+      console.log('Checking possible browser paths:', possiblePaths);
+  
+      // Log contents of potential directories
+      possiblePaths.forEach(dir => {
+        try {
+          console.log(`Contents of ${path.dirname(dir)}:`, 
+            fs.existsSync(path.dirname(dir)) 
+              ? fs.readdirSync(path.dirname(dir)) 
+              : 'Directory does not exist'
+          );
+        } catch (err) {
+          console.error(`Error checking directory ${dir}:`, err);
+        }
+      });
   
       const browser = await chromium.launch({
         headless: true
+        // Do NOT specify executablePath
       });
       
       console.log('Browser launched successfully');
@@ -35,6 +54,7 @@ class BuyeeScraper {
       return { browser, context };
     } catch (error) {
       console.error('Detailed browser launch error:', error);
+      console.error('Error stack:', error.stack);
       console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
       throw error;
     }
