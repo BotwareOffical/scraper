@@ -8,18 +8,12 @@ class BuyeeScraper {
   constructor() {
     this.baseUrl = "https://buyee.jp";
   }
-  
+
 async setupBrowser() {
   try {
-    // Add verbose logging
-    console.log('Attempting to launch browser');
-    console.log('Playwright executable paths:', JSON.stringify(process.env, null, 2));
-
     const browser = await chromium.launch({
-      headless: true,
-      // Remove executablePath
+      headless: true
     });
-
     console.log('Browser launched successfully');
 
     const context = await browser.newContext({
