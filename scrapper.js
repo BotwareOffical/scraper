@@ -52,7 +52,6 @@ class BuyeeScraper {
     totalPages = 1
   ) {
     const { browser, context } = await this.setupBrowser();
-    console.log(`Starting search for: ${term}, Min: ${minPrice}, Max: ${maxPrice}, Category: ${category}, Page: ${page}`);
     try {
       const allProducts = [];
 
