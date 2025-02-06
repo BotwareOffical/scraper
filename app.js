@@ -87,17 +87,15 @@ app.post('/search', async (req, res, next) => {
       const { 
         term = '', 
         minPrice = '', 
-        maxPrice = '', 
-        category = ''
+        maxPrice = ''
       } = searchTerm;
 
       try {
-        // Basic search logic with error handling for individual search terms
+        // Use scraper's default values for category and totalPages
         const termResults = await scraper.scrapeSearchResults(
           term, 
           minPrice, 
-          maxPrice, 
-          category
+          maxPrice
         );
         
         console.log(`Found ${termResults.length} results for term: ${term}`);
@@ -107,7 +105,6 @@ app.post('/search', async (req, res, next) => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
       } catch (termError) {
         console.error(`Error searching for term ${term}:`, termError);
-        // Optionally, you can choose to continue or break based on your requirements
       }
     }
 
@@ -118,7 +115,7 @@ app.post('/search', async (req, res, next) => {
     });
   } catch (error) {
     console.error('Search error:', error);
-    next(error); // Pass to global error handler
+    next(error);
   }
 });
 
