@@ -52,6 +52,7 @@ class BuyeeScraper {
     totalPages = 1
   ) {
     const { browser, context } = await this.setupBrowser();
+    console.log(`Starting search for: ${term}, Min: ${minPrice}, Max: ${maxPrice}, Category: ${category}, Page: ${page}`);
     try {
       const allProducts = [];
 
@@ -60,6 +61,7 @@ class BuyeeScraper {
 
         // Construct search URL
         let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
+        console.log(`Constructed URL: ${searchUrl}`);
 
         // Add category to the URL if provided
         if (category) {
