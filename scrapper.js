@@ -12,41 +12,45 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      const browser = await chromium.launch({ headless: true });
-      const context = await browser.newContext({
-        viewport: { width: 1920, height: 1080 },
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        extraHTTPHeaders: {
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Encoding": "gzip, deflate, br",
-          Connection: "keep-alive",
-        },
+      console.log('Starting browser setup...');
+      
+      // Basic Linux-compatible configuration
+      const browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox']
       });
-      logger.info("Browser context setup successfully");
+      
+      console.log('Browser launched successfully');
+      
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+      
+      console.log('Browser context created');
       return { browser, context };
     } catch (error) {
-      logger.error(`Error setting up browser: ${error.message}`);
+      console.error('Browser setup failed:', error);
       throw error;
     }
   }
 
   // Scrape search results and save to search.json
-  async scrapeSearchResults(
-    term,
-    minPrice = "",
-    maxPrice = "",
-    category = "23000",
-    totalPages = 1
-  ) {
+  async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = 1) {
+    console.log('=== Starting search process ===');
+    console.log('Search parameters:', { term, minPrice, maxPrice, category, totalPages });
+    
     const { browser, context } = await this.setupBrowser();
+    console.log('Browser and context set up successfully');
+    
     try {
       const allProducts = [];
+      console.log('Initialized products array');
 
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
+        console.log(`Processing page ${currentPage} of ${totalPages}`);
         const pageInstance = await context.newPage();
+        console.log('New page instance created');
 
         // Construct search URL
         let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
@@ -64,70 +68,100 @@ class BuyeeScraper {
         params.push("translationType=98");
         if (params.length) searchUrl += `?${params.join("&")}`;
 
-        logger.info(`Searching with URL: ${searchUrl}`);
+        console.log(`Attempting to navigate to URL: ${searchUrl}`);
+        console.log('Navigation options:', { waitUntil: "domcontentloaded", timeout: 50000 });
+        
         await pageInstance.goto(searchUrl, {
           waitUntil: "domcontentloaded",
           timeout: 50000,
         });
+        console.log('Page navigation completed');
 
         // Wait for items to load
         try {
+          console.log('Waiting for items to appear on page...');
           await pageInstance.waitForSelector(".itemCard", { timeout: 10000 });
-        } catch {
-          logger.warn(`No items found on page ${currentPage}. Skipping...`);
+          console.log('Items selector found on page');
+        } catch (error) {
+          console.log(`No items found on page ${currentPage}. Error:`, error.message);
+          console.log('Current page HTML:', await pageInstance.content());
           await pageInstance.close();
           continue;
         }
 
+        console.log('Attempting to get all item cards...');
         const items = await pageInstance.$$(".itemCard");
-        logger.info(`Found ${items.length} items on page ${currentPage}`);
+        console.log(`Found ${items.length} items on page ${currentPage}`);
+        console.log('Item cards retrieved successfully');
 
         for (const item of items) {
-          const titleElement = await item.$(".itemCard__itemName a");
-          const title = titleElement
-            ? await titleElement.innerText()
-            : "No Title";
-          let url = titleElement
-            ? await titleElement.getAttribute("href")
-            : null;
-          if (!url) continue;
-          if (!url.startsWith("http")) url = `${this.baseUrl}${url}`;
+          try {
+            console.log('Processing item...');
+            const titleElement = await item.$(".itemCard__itemName a");
+            const title = titleElement
+              ? await titleElement.innerText()
+              : "No Title";
+            let url = titleElement
+              ? await titleElement.getAttribute("href")
+              : null;
+            
+            if (!url) {
+              console.log('Skipping item - no URL found');
+              continue;
+            }
+            
+            if (!url.startsWith("http")) url = `${this.baseUrl}${url}`;
 
-          const imgElement = await item.$(".g-thumbnail__image");
-          const imgSrc = imgElement
-            ? (await imgElement.getAttribute("data-src")) ||
-              (await imgElement.getAttribute("src"))
-            : null;
+            const imgElement = await item.$(".g-thumbnail__image");
+            const imgSrc = imgElement
+              ? (await imgElement.getAttribute("data-src")) ||
+                (await imgElement.getAttribute("src"))
+              : null;
 
-          const priceElement = await item.$(".g-price");
-          const price = priceElement
-            ? await priceElement.innerText()
-            : "Price Not Available";
+            const priceElement = await item.$(".g-price");
+            const price = priceElement
+              ? await priceElement.innerText()
+              : "Price Not Available";
 
-          allProducts.push({
-            title,
-            price,
-            url,
-            images: imgSrc ? [imgSrc.split("?")[0]] : [],
-          });
+            console.log('Item processed successfully:', { title, url });
+            allProducts.push({
+              title,
+              price,
+              url,
+              images: imgSrc ? [imgSrc.split("?")[0]] : [],
+            });
+          } catch (itemError) {
+            console.error('Error processing individual item:', itemError);
+          }
         }
 
-        await pageInstance.close(); // Close the page after processing
+        console.log(`Completed processing page ${currentPage}`);
+        await pageInstance.close();
+        console.log('Page instance closed');
       }
 
       // Save all products to search.json
       const filePath = path.join(__dirname, "search.json");
+      console.log(`Saving results to ${filePath}`);
       fs.writeFileSync(filePath, JSON.stringify(allProducts, null, 2), "utf-8");
-      logger.info(`Saved all search results to ${filePath}`);
+      console.log(`Successfully saved ${allProducts.length} products to file`);
 
+      console.log('=== Search completed successfully ===');
+      console.log(`Total products found: ${allProducts.length}`);
       await browser.close();
       return allProducts;
+      
     } catch (error) {
-      console.error("Search scraping error:", error.message);
+      console.error('=== Search failed ===');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       await browser.close();
       return [];
     }
-  }
+}
 
   // Scrape additional details and update search.json
   async scrapeDetails(urls = []) {
