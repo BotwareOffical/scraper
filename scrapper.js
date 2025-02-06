@@ -9,40 +9,30 @@ class BuyeeScraper {
     this.baseUrl = "https://buyee.jp";
   }
 
+  // Setup browser and context
   async setupBrowser() {
     try {
-      console.log('Current environment:', {
-        platform: process.platform,
-        arch: process.arch,
-        version: process.version
+      const browser = await chromium.launch({ headless: true });
+      const context = await browser.newContext({
+        viewport: { width: 1920, height: 1080 },
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        extraHTTPHeaders: {
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br",
+          Connection: "keep-alive",
+        },
       });
-  
-      const browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage'
-        ]
-      });
-  
-      console.log('Browser launched successfully');
-      return { 
-        browser, 
-        context: await browser.newContext({
-          viewport: { width: 1920, height: 1080 }
-        }) 
-      };
+      logger.info("Browser context setup successfully");
+      return { browser, context };
     } catch (error) {
-      console.error('Detailed browser launch error:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
+      logger.error(`Error setting up browser: ${error.message}`);
       throw error;
     }
   }
-  
+
   // Scrape search results and save to search.json
   async scrapeSearchResults(
     term,
@@ -60,7 +50,6 @@ class BuyeeScraper {
 
         // Construct search URL
         let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
-        console.log(`Constructed URL: ${searchUrl}`);
 
         // Add category to the URL if provided
         if (category) {
@@ -264,7 +253,7 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -476,7 +465,7 @@ class BuyeeScraper {
   }
 
   async login(username, password) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: false });
     const context = await browser.newContext();
     const page = await context.newPage();
 
