@@ -1,1 +1,1 @@
-web: npx playwright install-deps && npx playwright install chromium && node app.js
+web: node app.js

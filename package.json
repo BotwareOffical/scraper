@@ -6,8 +6,8 @@
     "node": "18.x"
   },
   "scripts": {
-    "start": "node detect-browsers.js && node app.js",
-    "postinstall": "npx playwright install chromium"
+    "start": "node app.js",
+    "postinstall": "npx playwright install chromium && npx playwright install-deps"
   },
   "dependencies": {
     "body-parser": "^1.20.2",
