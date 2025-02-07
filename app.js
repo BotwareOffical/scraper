@@ -12,7 +12,7 @@ const app = express();
 // Configure CORS with more permissive settings
 const corsOptions = {
   origin: [
-    'https://your-frontend-url.com', 
+    'https://buyee-scraper-frontend-new-23f2627c6b90.herokuapp.com', 
     'http://localhost:5173',
     // Add all possible frontend URLs
   ],
