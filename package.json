@@ -6,7 +6,6 @@
     "node": "20.x"
   },
   "scripts": {
-    "prestart": "npx playwright install chromium --with-deps",
     "start": "node app.js"
   },
   "dependencies": {
