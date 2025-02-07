@@ -17,7 +17,7 @@ class BuyeeScraper {
       // Basic Linux-compatible configuration
       const browser = await chromium.launch({
         headless: true,
-        args: ['--no-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       
       console.log('Browser launched successfully');
@@ -287,7 +287,10 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({
+      headless: false,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });    
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -434,7 +437,10 @@ class BuyeeScraper {
 
   // Update bid prices
   async updateBid(productUrl) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ 
+      headless: true, 
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+    });
     const context = await browser.newContext({ storageState: "login.json" });
 
     try {
@@ -499,7 +505,10 @@ class BuyeeScraper {
   }
 
   async login(username, password) {
-    const browser = await chromium.launch({ headless: false });
+    const browser = await chromium.launch({ 
+      headless: false, 
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+    });
     const context = await browser.newContext();
     const page = await context.newPage();
 
