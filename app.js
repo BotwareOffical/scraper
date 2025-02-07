@@ -190,34 +190,36 @@ app.get('/bids', (req, res) => {
   }
 });
 
-// Login endpoint
 app.post('/login', async (req, res) => {
   try {
-    console.log('Received login request:', req.body);
+    console.log('=== Login Request ===');
+    console.log('Request URL:', req.url);
+    console.log('Origin:', req.headers.origin);
+    console.log('Login data:', {
+      hasUsername: !!req.body.username,
+      hasPassword: !!req.body.password
+    });
 
     const { username, password } = req.body;
 
     if (!username || !password) {
-      console.warn('Username or password missing');
       return res.status(400).json({
         success: false,
-        message: 'Username and password are required',
+        message: 'Username and password required'
       });
     }
 
-    // Call the scraper's login method
     const loginResult = await scraper.login(username, password);
-
     res.json({
       success: true,
       message: 'Login successful',
-      data: loginResult,
+      data: loginResult
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({
-      success: false,
-      message: 'Login failed. Please check your credentials and try again.',
+      success: false, 
+      message: error.message || 'Login failed'
     });
   }
 });
