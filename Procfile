@@ -1,1 +1,1 @@
-web:  npm install playwright && npm start
+web: npm start
