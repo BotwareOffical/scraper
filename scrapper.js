@@ -515,20 +515,37 @@ class BuyeeScraper {
 
   async login(username, password) {
     const browser = await chromium.launch({ 
-      headless: false, 
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const context = await browser.newContext();
     const page = await context.newPage();
-
-    await page.goto("https://buyee.jp/signup/login");
-    await page.locator("#login_mailAddress").fill(username);
-    await page.locator("#login_password").fill(password);
-    await page.getByRole("link", { name: "Login" }).click();
-    await page.pause();
-    await context.storageState({ path: "login.json" });
-    await browser.close();
+  
+    try {
+      console.log('Navigating to login page...');
+      await page.goto("https://buyee.jp/signup/login");
+      
+      console.log('Page HTML content:');
+      const content = await page.content();
+      console.log(content);
+  
+      await page.locator("#login_mailAddress").fill(username);
+      await page.locator("#login_password").fill(password);
+      await page.getByRole("link", { name: "Login" }).click();
+      
+      // Wait for navigation and log result
+      await page.waitForTimeout(3000);
+      console.log('Post-login HTML content:');
+      console.log(await page.content());
+  
+      await context.storageState({ path: "login.json" });
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    } finally {
+      await browser.close();
+    }
   }
-}
+}  
 
 module.exports = BuyeeScraper;
