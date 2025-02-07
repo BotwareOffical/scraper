@@ -6,7 +6,8 @@
     "node": "20.x"
   },
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "postinstall": "npx playwright install --with-deps"
     },
   "dependencies": {
     "body-parser": "^1.20.2",
