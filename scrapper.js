@@ -176,7 +176,6 @@ class BuyeeScraper {
     }
   }
 
-  // Scrape additional details and update search.json
   async scrapeDetails(urls = []) {
     const { browser, context } = await this.setupBrowser();
 
@@ -189,16 +188,13 @@ class BuyeeScraper {
         try {
           console.log(`Navigating to URL: ${productUrl}`);
           
-          // More aggressive navigation options
           await productPage.goto(productUrl, {
             waitUntil: 'load',
             timeout: 45000
           });
 
-          // Additional wait for network to settle
           await productPage.waitForTimeout(3000);
 
-          // Extract product details directly from the page
           const productDetails = await productPage.evaluate(() => {
             // More aggressive title extraction
             let title = 'No Title';
@@ -246,27 +242,38 @@ class BuyeeScraper {
               }
             }
 
-            // More comprehensive thumbnail extraction
-            let thumbnailUrl = null;
-            const thumbnailSelectors = [
-              '.flexslider .slides img',
-              '.flex-control-nav .slides img',
-              '.itemImg img',
-              '.mainImage img',
-              '.g-thumbnail__image',
-              '.itemPhoto img',
-              'img.primary-image'
-            ];
+            // Extract all images from thumbnail navigation
+            let images = [];
+            const thumbnailList = document.querySelector('.flex-control-nav.flex-control-thumbs');
+            if (thumbnailList) {
+              const thumbnailImages = thumbnailList.querySelectorAll('img');
+              images = Array.from(thumbnailImages)
+                .map(img => img.src)
+                .map(src => src.split('?')[0]); // Remove query parameters
+            }
 
-            for (const selector of thumbnailSelectors) {
-              const thumbnailElement = document.querySelector(selector);
-              if (thumbnailElement) {
-                thumbnailUrl = thumbnailElement.src || 
-                              thumbnailElement.getAttribute('data-src') || 
-                              thumbnailElement.getAttribute('data-original');
-                if (thumbnailUrl) {
-                  thumbnailUrl = thumbnailUrl.split('?')[0];
-                  break;
+            // Fallback to single image if no thumbnails found
+            if (images.length === 0) {
+              const imageSelectors = [
+                '.flexslider .slides img',
+                '.flex-control-nav .slides img',
+                '.itemImg img',
+                '.mainImage img',
+                '.g-thumbnail__image',
+                '.itemPhoto img',
+                'img.primary-image'
+              ];
+
+              for (const selector of imageSelectors) {
+                const imageElement = document.querySelector(selector);
+                if (imageElement) {
+                  const src = imageElement.src || 
+                             imageElement.getAttribute('data-src') || 
+                             imageElement.getAttribute('data-original');
+                  if (src) {
+                    images.push(src.split('?')[0]);
+                    break;
+                  }
                 }
               }
             }
@@ -276,7 +283,7 @@ class BuyeeScraper {
               price,
               time_remaining,
               url: window.location.href,
-              images: thumbnailUrl ? [thumbnailUrl] : []
+              images
             };
           });
 
@@ -298,7 +305,7 @@ class BuyeeScraper {
       return [];
     }
   }
-
+  
   async placeBid(productUrl, bidAmount) {
     const browser = await chromium.launch({
       headless: false,
