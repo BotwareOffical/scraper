@@ -1,1 +1,1 @@
-web: playwright install-deps && npm install && npm start
+web:  npm start
