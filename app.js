@@ -11,10 +11,14 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: true, // This dynamically reflects the requesting origin
+  origin: [
+    'https://your-frontend-url.com', 
+    'http://localhost:5173',
+    // Add all possible frontend URLs
+  ],
+  credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 };
 
 
