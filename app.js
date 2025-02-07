@@ -183,6 +183,8 @@ app.get('/bids', (req, res) => {
 app.post('/login', async (req, res) => {
   try {
     console.log('Received login request:', req.body);
+    console.log('All env vars:', import.meta.env);
+    console.log('Backend URL:', import.meta.env.VITE_APP_BACKEND_URL);
 
     const { username, password } = req.body;
 
