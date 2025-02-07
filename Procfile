@@ -1,1 +1,1 @@
-web: node app.js
+web: npm install playwright && npx playwright install chromium && node app.js
