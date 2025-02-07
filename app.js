@@ -5,7 +5,7 @@ const BuyeeScraper = require('./scrapper');
 const logger = require('morgan');
 const fs = require('fs');
 const path = require('path');
-const bidFilePath = path.resolve(__dirname, '../bids.json');
+const bidFilePath = path.resolve(__dirname, './data/bids.json');
 
 const app = express();
 
