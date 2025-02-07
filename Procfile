@@ -1,2 +1,1 @@
-web: npm install && node app.js
-
+web: playwright install-deps && npm install && npm start

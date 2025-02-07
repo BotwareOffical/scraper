@@ -7,7 +7,7 @@
   },
   "scripts": {
     "start": "node app.js",
-    "postinstall": "npx playwright install-deps --use-apt-get"
+    "postinstall": "playwright install-deps"
   },
   "dependencies": {
     "body-parser": "^1.20.2",
