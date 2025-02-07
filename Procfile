@@ -1,1 +1,1 @@
-web: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" bash -c "node detect-browsers.js && npx playwright install chromium && node app.js"
+web: npx playwright install chromium && node app.js"
