@@ -1,4 +1,4 @@
-const { chromium } = require("playwright");
+const { chromium } = require("playwright-core");
 const logger = require("pino")();
 const fs = require("fs");
 const path = require("path");
