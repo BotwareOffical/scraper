@@ -182,8 +182,14 @@ app.get('/bids', (req, res) => {
     res.set('Cache-Control', 'no-store');
     const data = fs.readFileSync(bidFilePath, 'utf-8');
     const bidsData = JSON.parse(data);
-    console.log(bidsData)
-    res.json(bidsData.bids);
+    
+    // Ensure bids is an array
+    const bids = Array.isArray(bidsData) 
+      ? bidsData 
+      : (bidsData.bids || []);
+    
+    console.log('Bids retrieved:', bids);
+    res.json(bids);
   } catch (error) {
     console.error(`Error reading bids: ${error.message}`);
     res.status(500).json({ error: error.message });
