@@ -525,27 +525,41 @@ class BuyeeScraper {
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Cache-Control': 'max-age=0',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"'
+        'Connection': 'keep-alive'
       }
     });
   
     const page = await context.newPage();
     
     try {
-      console.log('Navigating to login page...');
+      console.log('Starting login process...');
       await page.goto("https://buyee.jp/signup/login", {
         waitUntil: 'networkidle',
         timeout: 30000
       });
-      
-      console.log('Page HTML content:');
-      console.log(await page.content());
   
+      await page.waitForSelector('#login_mailAddress');
+      await page.fill('#login_mailAddress', username);
+      await page.fill('#login_password', password);
+  
+      // Click the login submit button by its ID
+      await page.click('#login_submit');
+      
+      // Wait for navigation
+      await page.waitForNavigation({ waitUntil: 'networkidle' });
+      
+      console.log('Login successful - saving credentials...');
       await context.storageState({ path: "login.json" });
+      
+      const content = await page.content();
+      if (content.includes('マイページ') || content.includes('My Page')) {
+        console.log('Login confirmed - user is on dashboard');
+        return true;
+      }
+  
+      console.log('Login status unclear - saving page content for debugging');
+      console.log(content.substring(0, 500));
+  
     } catch (error) {
       console.error('Login error:', error);
       throw error;
