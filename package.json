@@ -7,8 +7,8 @@
   },
   "scripts": {
     "start": "node app.js",
-    "postinstall": "npx playwright install --with-deps"
-    },
+    "postinstall": "playwright install-deps"
+  },
   "dependencies": {
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
