@@ -84,7 +84,6 @@ class BuyeeScraper {
           console.log('Items selector found on page');
         } catch (error) {
           console.log(`No items found on page ${currentPage}. Error:`, error.message);
-          console.log('Current page HTML:', await pageInstance.content());
           await pageInstance.close();
           continue;
         }
