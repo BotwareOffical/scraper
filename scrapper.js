@@ -518,24 +518,31 @@ class BuyeeScraper {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'max-age=0',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"'
+      }
+    });
   
+    const page = await context.newPage();
+    
     try {
       console.log('Navigating to login page...');
-      await page.goto("https://buyee.jp/signup/login");
+      await page.goto("https://buyee.jp/signup/login", {
+        waitUntil: 'networkidle',
+        timeout: 30000
+      });
       
       console.log('Page HTML content:');
-      const content = await page.content();
-      console.log(content);
-  
-      await page.locator("#login_mailAddress").fill(username);
-      await page.locator("#login_password").fill(password);
-      await page.getByRole("link", { name: "Login" }).click();
-      
-      // Wait for navigation and log result
-      await page.waitForTimeout(3000);
-      console.log('Post-login HTML content:');
       console.log(await page.content());
   
       await context.storageState({ path: "login.json" });
