@@ -72,18 +72,28 @@ class BuyeeScraper {
         console.log('Navigation options:', { waitUntil: "domcontentloaded", timeout: 50000 });
         
         await pageInstance.goto(searchUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 50000,
+          waitUntil: "networkidle",  // Changed from domcontentloaded
+          timeout: 60000,  // Increased timeout
         });
-        console.log('Page navigation completed');
 
-        // Wait for items to load
+        // Update the selector wait logic
         try {
           console.log('Waiting for items to appear on page...');
-          await pageInstance.waitForSelector(".itemCard", { timeout: 10000 });
-          console.log('Items selector found on page');
+          await pageInstance.waitForSelector(".itemCard, .g-item-list, .p-items", { 
+            timeout: 30000,
+            state: 'attached'
+          });
+          
+          // Add debug logging
+          const content = await pageInstance.content();
+          console.log('Page content sample:', content.substring(0, 500));
+          
+          // Try multiple selectors
+          const items = await pageInstance.$$(`.itemCard, .g-item-list > div, .p-items > div`);
+          console.log(`Found ${items.length} items on page ${currentPage}`);
         } catch (error) {
           console.log(`No items found on page ${currentPage}. Error:`, error.message);
+          console.log('Current URL:', await pageInstance.url());
           await pageInstance.close();
           continue;
         }
