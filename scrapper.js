@@ -305,10 +305,10 @@ class BuyeeScraper {
       return [];
     }
   }
-  
+
   async placeBid(productUrl, bidAmount) {
     const browser = await chromium.launch({
-      headless: false,
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });    
     const context = await browser.newContext({ storageState: "login.json" });
