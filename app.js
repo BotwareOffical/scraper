@@ -11,14 +11,25 @@ const app = express();
 
 // Configure CORS with more permissive settings
 const corsOptions = {
-  origin: [
-    'https://buyee-scraper-frontend-new-23f2627c6b90.herokuapp.com', 
-    'http://localhost:5173',
-    // Add all possible frontend URLs
-  ],
+  origin: function(origin, callback) {
+    console.log('Request Origin:', origin);
+    const allowedOrigins = [
+      'https://buyee-scraper-frontend-new-23f2627c6b90.herokuapp.com',
+      'http://localhost:5173'
+    ];
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('Origin not allowed:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Access-Control-Allow-Origin'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 
@@ -183,8 +194,6 @@ app.get('/bids', (req, res) => {
 app.post('/login', async (req, res) => {
   try {
     console.log('Received login request:', req.body);
-    console.log('All env vars:', import.meta.env);
-    console.log('Backend URL:', import.meta.env.VITE_APP_BACKEND_URL);
 
     const { username, password } = req.body;
 
@@ -260,24 +269,27 @@ app.post('/update-bid-prices', async (req, res) => {
   }
 });
 
-// Add this at the end of your app.js, before app.listen()
+// Debug middleware - add before routes
+app.use((req, res, next) => {
+  console.log('\n=== Request ===');
+  console.log(`${req.method} ${req.url}`);
+  console.log('Origin:', req.headers.origin);
+  console.log('Headers:', {
+    'content-type': req.headers['content-type'],
+    'accept': req.headers.accept,
+    'origin': req.headers.origin
+  });
+  next();
+});
+
+// Error handling - keep as is at end of file
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  console.error('Error:', err);
   res.status(500).json({
     success: false,
-    error: 'An unexpected error occurred',
     message: err.message || 'Internal server error'
   });
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Start the server
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
