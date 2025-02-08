@@ -104,7 +104,11 @@ app.post('/search', async (req, res, next) => {
     console.log(`[${searchId}] === Starting Search Request ===`);
     console.log(`[${searchId}] Request data:`, JSON.stringify(req.body, null, 2));
     
-    const { terms: searchTerms = [] } = req.body;
+    const { 
+      terms: searchTerms = [], 
+      page = 1, 
+      pageSize = 100 
+    } = req.body;
 
     if (!searchTerms.length) {
       return res.status(400).json({ 
@@ -118,7 +122,7 @@ app.post('/search', async (req, res, next) => {
     const errors = [];
     let hasPartialSuccess = false;
 
-    const batchSize = 1; // Reduce to 1 to minimize concurrent requests
+    const batchSize = 1; // Keep existing batch logic
     const totalBatches = Math.ceil(searchTerms.length / batchSize);
 
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
@@ -135,7 +139,6 @@ app.post('/search', async (req, res, next) => {
           const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
           console.log(`[${searchId}] Starting search for "${term}"`);
           
-          // Limit results per search term
           const termResults = await scraper.scrapeSearchResults(
             term, 
             minPrice, 
@@ -188,13 +191,21 @@ app.post('/search', async (req, res, next) => {
     console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
     console.log(`[${searchId}] Final results: ${results.length}, Errors: ${errors.length}`);
 
-    if (results.length > 0 || hasPartialSuccess) {
+    // Pagination logic
+    const totalResults = results.length;
+    const startIndex = (page - 1) * pageSize;
+    const paginatedResults = results.slice(startIndex, startIndex + pageSize);
+
+    if (paginatedResults.length > 0 || hasPartialSuccess) {
       res.header('Access-Control-Allow-Origin', req.headers.origin);
       res.header('Access-Control-Allow-Credentials', 'true');
       res.json({
         success: true,
-        results,
-        count: results.length,
+        results: paginatedResults,
+        count: paginatedResults.length,
+        totalResults,
+        currentPage: page,
+        totalPages: Math.ceil(totalResults / pageSize),
         errors: errors.length > 0 ? errors : undefined,
         isPartialResult: errors.length > 0,
         duration: totalDuration,
@@ -215,7 +226,6 @@ app.post('/search', async (req, res, next) => {
     });
   }
 });
-
 
 // Details Endpoint
 app.post('/details', async (req, res) => {
