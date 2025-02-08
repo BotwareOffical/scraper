@@ -6,6 +6,7 @@ const logger = require('morgan');
 const fs = require('fs');
 const path = require('path');
 const bidFilePath = path.resolve(__dirname, './data/bids.json');
+const SERVER_TIMEOUT = 300000; // 5 minutes
 
 const app = express();
 
@@ -31,7 +32,6 @@ const corsOptions = {
   preflightContinue: false,
   optionsSuccessStatus: 204
 };
-
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
@@ -84,13 +84,15 @@ app.post('/place-bid', async (req, res) => {
     });
   }
 });
-
-// Search endpoint
 app.post('/search', async (req, res, next) => {
+  const startTime = Date.now();
+  const searchId = Math.random().toString(36).substring(7);
+
   try {
-    console.log('Received search request');
+    console.log(`[${searchId}] === Starting Search Request ===`);
+    console.log(`[${searchId}] Request data:`, JSON.stringify(req.body, null, 2));
+    
     const { terms: searchTerms = [] } = req.body;
-    console.log('Received search request with data:', req.body);
 
     if (!searchTerms.length) {
       return res.status(400).json({ 
@@ -99,74 +101,77 @@ app.post('/search', async (req, res, next) => {
       });
     }
 
+    console.log(`[${searchId}] Processing ${searchTerms.length} search terms`);
     const results = [];
     const errors = [];
     let hasPartialSuccess = false;
 
-    // Process search terms in parallel with a concurrency limit of 4
-    const batchSize = 4; // Process 4 terms at a time
+    const batchSize = 2; // Reduced batch size for testing
     const totalBatches = Math.ceil(searchTerms.length / batchSize);
 
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const batchStartTime = Date.now();
       const startIndex = batchIndex * batchSize;
       const batch = searchTerms.slice(startIndex, startIndex + batchSize);
-      console.log(`Processing batch ${batchIndex + 1}/${totalBatches} with ${batch.length} terms`);
+      
+      console.log(`[${searchId}] Starting batch ${batchIndex + 1}/${totalBatches}`);
+      console.log(`[${searchId}] Batch terms:`, batch.map(t => t.term));
 
       const batchPromises = batch.map(async searchTerm => {
+        const termStartTime = Date.now();
         try {
-          const { 
-            term = '', 
-            minPrice = '', 
-            maxPrice = ''
-          } = searchTerm;
-
-          console.log(`Starting search for term: ${term}`);
+          const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
+          console.log(`[${searchId}] Starting search for "${term}"`);
           
-          // Use scraper's default values for category and totalPages
-          const termResults = await scraper.scrapeSearchResults(
-            term, 
-            minPrice, 
-            maxPrice
-          );
+          const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice);
           
-          console.log(`Found ${termResults.length} results for term: ${term}`);
+          const duration = ((Date.now() - termStartTime) / 1000).toFixed(2);
+          console.log(`[${searchId}] Completed "${term}" in ${duration}s with ${termResults.length} results`);
+          
           if (termResults.length > 0) {
             hasPartialSuccess = true;
           }
           return termResults;
         } catch (termError) {
-          console.error(`Error searching for term ${searchTerm.term}:`, termError);
+          console.error(`[${searchId}] Error searching "${searchTerm.term}":`, termError);
           errors.push({
             term: searchTerm.term,
-            error: termError.message
+            error: termError.message,
+            time: new Date().toISOString()
           });
           return [];
         }
       });
 
-      // Wait for current batch to complete
       try {
         const batchResults = await Promise.all(batchPromises);
-        const validResults = batchResults.flat().filter(result => result); // Filter out null/undefined
+        const validResults = batchResults.flat().filter(Boolean);
         results.push(...validResults);
         
-        console.log(`Batch ${batchIndex + 1} completed. Total results so far: ${results.length}`);
+        const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(2);
+        console.log(`[${searchId}] Batch ${batchIndex + 1} completed in ${batchDuration}s`);
+        console.log(`[${searchId}] Total results so far: ${results.length}`);
 
-        // Add delay between batches, but not after the last batch
         if (batchIndex < totalBatches - 1) {
-          console.log('Adding delay between batches...');
+          console.log(`[${searchId}] Adding delay between batches...`);
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       } catch (batchError) {
-        console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
+        console.error(`[${searchId}] Batch ${batchIndex + 1} failed:`, batchError);
         errors.push({
           batch: batchIndex + 1,
-          error: batchError.message
+          error: batchError.message,
+          time: new Date().toISOString()
         });
+        // Continue with next batch instead of failing completely
+        continue;
       }
     }
 
-    // Return results
+    const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
+    console.log(`[${searchId}] Final results: ${results.length}, Errors: ${errors.length}`);
+
     if (results.length > 0 || hasPartialSuccess) {
       res.json({
         success: true,
@@ -174,26 +179,25 @@ app.post('/search', async (req, res, next) => {
         count: results.length,
         errors: errors.length > 0 ? errors : undefined,
         isPartialResult: errors.length > 0,
+        duration: totalDuration,
         searchedTerms: searchTerms.length,
         successfulSearches: searchTerms.length - errors.length
       });
     } else {
-      // If no results at all, return error
-      throw new Error(
-        errors.length > 0 
-          ? errors.map(e => `${e.term || `Batch ${e.batch}`}: ${e.error}`).join('; ')
-          : 'No results found for any search terms'
-      );
+      throw new Error(errors.map(e => `${e.term || `Batch ${e.batch}`}: ${e.error}`).join('; '));
     }
   } catch (error) {
-    console.error('Search error:', error);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`[${searchId}] Fatal error after ${duration}s:`, error);
     res.status(500).json({
       success: false,
       error: error.message,
+      duration: duration,
       message: 'Search failed. Please try with fewer terms or try again later.'
     });
   }
 });
+
 
 // Details Endpoint
 app.post('/details', async (req, res) => {
@@ -358,4 +362,5 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+server.timeout = SERVER_TIMEOUT;
