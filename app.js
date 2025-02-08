@@ -100,40 +100,98 @@ app.post('/search', async (req, res, next) => {
     }
 
     const results = [];
+    const errors = [];
+    let hasPartialSuccess = false;
 
-    for (const searchTerm of searchTerms) {
-      const { 
-        term = '', 
-        minPrice = '', 
-        maxPrice = ''
-      } = searchTerm;
+    // Process search terms in parallel with a concurrency limit of 4
+    const batchSize = 4; // Process 4 terms at a time
+    const totalBatches = Math.ceil(searchTerms.length / batchSize);
 
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const startIndex = batchIndex * batchSize;
+      const batch = searchTerms.slice(startIndex, startIndex + batchSize);
+      console.log(`Processing batch ${batchIndex + 1}/${totalBatches} with ${batch.length} terms`);
+
+      const batchPromises = batch.map(async searchTerm => {
+        try {
+          const { 
+            term = '', 
+            minPrice = '', 
+            maxPrice = ''
+          } = searchTerm;
+
+          console.log(`Starting search for term: ${term}`);
+          
+          // Use scraper's default values for category and totalPages
+          const termResults = await scraper.scrapeSearchResults(
+            term, 
+            minPrice, 
+            maxPrice
+          );
+          
+          console.log(`Found ${termResults.length} results for term: ${term}`);
+          if (termResults.length > 0) {
+            hasPartialSuccess = true;
+          }
+          return termResults;
+        } catch (termError) {
+          console.error(`Error searching for term ${searchTerm.term}:`, termError);
+          errors.push({
+            term: searchTerm.term,
+            error: termError.message
+          });
+          return [];
+        }
+      });
+
+      // Wait for current batch to complete
       try {
-        // Use scraper's default values for category and totalPages
-        const termResults = await scraper.scrapeSearchResults(
-          term, 
-          minPrice, 
-          maxPrice
-        );
+        const batchResults = await Promise.all(batchPromises);
+        const validResults = batchResults.flat().filter(result => result); // Filter out null/undefined
+        results.push(...validResults);
         
-        console.log(`Found ${termResults.length} results for term: ${term}`);
-        results.push(...termResults);
+        console.log(`Batch ${batchIndex + 1} completed. Total results so far: ${results.length}`);
 
-        // Avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      } catch (termError) {
-        console.error(`Error searching for term ${term}:`, termError);
+        // Add delay between batches, but not after the last batch
+        if (batchIndex < totalBatches - 1) {
+          console.log('Adding delay between batches...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } catch (batchError) {
+        console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
+        errors.push({
+          batch: batchIndex + 1,
+          error: batchError.message
+        });
       }
     }
 
-    res.json({
-      success: true,
-      results,
-      count: results.length,
-    });
+    // Return results
+    if (results.length > 0 || hasPartialSuccess) {
+      res.json({
+        success: true,
+        results,
+        count: results.length,
+        errors: errors.length > 0 ? errors : undefined,
+        isPartialResult: errors.length > 0,
+        searchedTerms: searchTerms.length,
+        successfulSearches: searchTerms.length - errors.length
+      });
+    } else {
+      // If no results at all, return error
+      throw new Error(
+        errors.length > 0 
+          ? errors.map(e => `${e.term || `Batch ${e.batch}`}: ${e.error}`).join('; ')
+          : 'No results found for any search terms'
+      );
+    }
   } catch (error) {
     console.error('Search error:', error);
-    next(error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Search failed. Please try with fewer terms or try again later.'
+    });
   }
 });
 
