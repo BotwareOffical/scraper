@@ -202,12 +202,35 @@ class BuyeeScraper {
     }
   }
 
+    // Add this method to the BuyeeScraper class
+  async removeFinishedAuctions(finishedUrls) {
+    try {
+      const bidFilePath = path.resolve(__dirname, "./data/bids.json");
+      if (!fs.existsSync(bidFilePath)) {
+        console.log('Bids file not found');
+        return;
+      }
+
+      const bidsData = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
+      const updatedBids = bidsData.filter(bid => 
+        !finishedUrls.includes(bid.productUrl)
+      );
+
+      fs.writeFileSync(bidFilePath, JSON.stringify(updatedBids, null, 2));
+      console.log(`Removed ${finishedUrls.length} finished auctions from bids.json`);
+    } catch (error) {
+      console.error('Error removing finished auctions:', error);
+    }
+  }
+
+
   async scrapeDetails(urls = []) {
     const { browser, context } = await this.setupBrowser();
-
+    const finishedUrls = [];
+  
     try {
       const detailedProducts = [];
-
+  
       for (const productUrl of urls) {
         const productPage = await context.newPage();
         
@@ -218,11 +241,11 @@ class BuyeeScraper {
             waitUntil: 'load',
             timeout: 45000
           });
-
+  
           await productPage.waitForTimeout(3000);
-
+  
           const productDetails = await productPage.evaluate(() => {
-            // More aggressive title extraction
+            // Title extraction
             let title = 'No Title';
             const titleElements = [
               document.querySelector('h1'),
@@ -236,8 +259,8 @@ class BuyeeScraper {
                 break;
               }
             }
-
-            // More aggressive price extraction
+  
+            // Price extraction
             let price = 'Price Not Available';
             const priceElements = [
               document.querySelector('.current_price .price'),
@@ -251,8 +274,8 @@ class BuyeeScraper {
                 break;
               }
             }
-
-            // More aggressive time remaining extraction
+  
+            // Time remaining extraction
             let time_remaining = 'Time Not Available';
             const timeElements = [
               document.querySelector('.itemInformation__infoItem .g-text--attention'),
@@ -267,9 +290,10 @@ class BuyeeScraper {
                 break;
               }
             }
-
-            // Extract all images from thumbnail navigation
+  
+            // Image extraction
             let images = [];
+            // Try thumbnail navigation first
             const thumbnailList = document.querySelector('.flex-control-nav.flex-control-thumbs');
             if (thumbnailList) {
               const thumbnailImages = thumbnailList.querySelectorAll('img');
@@ -277,7 +301,7 @@ class BuyeeScraper {
                 .map(img => img.src)
                 .map(src => src.split('?')[0]); // Remove query parameters
             }
-
+  
             // Fallback to single image if no thumbnails found
             if (images.length === 0) {
               const imageSelectors = [
@@ -289,7 +313,7 @@ class BuyeeScraper {
                 '.itemPhoto img',
                 'img.primary-image'
               ];
-
+  
               for (const selector of imageSelectors) {
                 const imageElement = document.querySelector(selector);
                 if (imageElement) {
@@ -303,7 +327,7 @@ class BuyeeScraper {
                 }
               }
             }
-
+  
             return {
               title,
               price,
@@ -312,9 +336,15 @@ class BuyeeScraper {
               images
             };
           });
-
+  
           console.log('Extracted Product Details:', JSON.stringify(productDetails, null, 2));
-
+  
+          // Check if auction is finished
+          if (productDetails.time_remaining.toLowerCase().includes('finished')) {
+            console.log(`Auction finished for URL: ${productUrl}`);
+            finishedUrls.push(productUrl);
+          }
+  
           detailedProducts.push(productDetails);
         } catch (pageError) {
           console.error(`Error scraping details for ${productUrl}:`, pageError);
@@ -322,7 +352,12 @@ class BuyeeScraper {
           await productPage.close();
         }
       }
-
+  
+      // Remove finished auctions from bids.json
+      if (finishedUrls.length > 0) {
+        await this.removeFinishedAuctions(finishedUrls);
+      }
+  
       await browser.close();
       return detailedProducts;
     } catch (error) {
@@ -558,6 +593,8 @@ class BuyeeScraper {
     
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
       extraHTTPHeaders: {
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -570,40 +607,78 @@ class BuyeeScraper {
     
     try {
       console.log('Starting login process...');
+      
+      // Navigate to login page with proper wait
       await page.goto("https://buyee.jp/signup/login", {
         waitUntil: 'networkidle',
         timeout: 30000
       });
   
-      await page.waitForSelector('#login_mailAddress');
-      await page.fill('#login_mailAddress', username);
-      await page.fill('#login_password', password);
+      // Wait for and verify form elements
+      const emailInput = await page.waitForSelector('#login_mailAddress', { state: 'visible' });
+      const passwordInput = await page.waitForSelector('#login_password', { state: 'visible' });
+      const submitButton = await page.waitForSelector('#login_submit', { state: 'visible' });
   
-      // Click the login submit button by its ID
-      await page.click('#login_submit');
-      
-      // Wait for navigation
-      await page.waitForNavigation({ waitUntil: 'networkidle' });
-      
+      if (!emailInput || !passwordInput || !submitButton) {
+        throw new Error('Login form elements not found');
+      }
+  
+      // Clear fields and enter credentials
+      await emailInput.click({ clickCount: 3 });
+      await emailInput.press('Backspace');
+      await emailInput.fill(username);
+  
+      await passwordInput.click({ clickCount: 3 });
+      await passwordInput.press('Backspace');
+      await passwordInput.fill(password);
+  
+      // Add delay before clicking submit
+      await page.waitForTimeout(1000);
+  
+      // Click submit and wait for navigation
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
+        submitButton.click()
+      ]);
+  
+      // Verify login success multiple ways
+      const isLoggedIn = await page.evaluate(() => {
+        // Check multiple indicators of successful login
+        const myPageLink = document.querySelector('a[href*="mypage"]');
+        const userMenu = document.querySelector('.user-menu');
+        const logoutButton = document.querySelector('a[href*="logout"]');
+        const welcomeText = document.querySelector('.welcome-text');
+        return !!(myPageLink || userMenu || logoutButton || welcomeText);
+      });
+  
+      if (!isLoggedIn) {
+        // Check for error messages
+        const errorMessage = await page.evaluate(() => {
+          const errorElement = document.querySelector('.error-message, .alert-error, .form-error');
+          return errorElement ? errorElement.textContent.trim() : null;
+        });
+  
+        if (errorMessage) {
+          throw new Error(`Login failed: ${errorMessage}`);
+        }
+        throw new Error('Login verification failed');
+      }
+  
+      // Save successful login state
       console.log('Login successful - saving credentials...');
       await context.storageState({ path: "login.json" });
       
-      const content = await page.content();
-      if (content.includes('マイページ') || content.includes('My Page')) {
-        console.log('Login confirmed - user is on dashboard');
-        return true;
-      }
-  
-      console.log('Login status unclear - saving page content for debugging');
-      console.log(content.substring(0, 500));
+      return { success: true, message: 'Login successful' };
   
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
+      // Take screenshot for debugging
+      await page.screenshot({ path: 'login-error.png' });
+      throw new Error(`Login failed: ${error.message}`);
     } finally {
       await browser.close();
     }
   }
-}  
+}
 
 module.exports = BuyeeScraper;
