@@ -87,7 +87,6 @@ class BuyeeScraper {
       console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
   
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
-        console.log(`Processing page ${currentPage} of ${totalPages}`);
         const pageInstance = await context.newPage();
         pageInstance.setDefaultTimeout(2000000);  // Add this line
         pageInstance.setDefaultNavigationTimeout(2000000);  // Add this line
@@ -98,9 +97,7 @@ class BuyeeScraper {
         const pageSearchUrl = searchUrl.includes('?') 
           ? `${searchUrl}&page=${currentPage}`
           : `${searchUrl}?page=${currentPage}`;
-  
-        console.log(`Attempting to navigate to URL: ${pageSearchUrl}`);
-        
+          
         await pageInstance.goto(pageSearchUrl, {
           waitUntil: "networkidle",
           timeout: 200000,
@@ -117,7 +114,6 @@ class BuyeeScraper {
   
           for (const item of items) {
             try {
-              console.log('Processing item...');
               const titleElement = await item.$(".itemCard__itemName a");
               const title = titleElement
                 ? await titleElement.innerText()
@@ -162,7 +158,6 @@ class BuyeeScraper {
                 }
               }
   
-              console.log('Item processed successfully:', { title, url });
               allProducts.push({
                 title,
                 price,
@@ -421,7 +416,7 @@ async removeFinishedAuctions(finishedUrls) {
       const page = await context.newPage();
       await page.goto(productUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 30000
+        timeout: 300000
       });
 
       // Extract price with multiple selectors
