@@ -203,26 +203,119 @@ class BuyeeScraper {
   }
 
     // Add this method to the BuyeeScraper class
-  async removeFinishedAuctions(finishedUrls) {
-    try {
-      const bidFilePath = path.resolve(__dirname, "./data/bids.json");
-      if (!fs.existsSync(bidFilePath)) {
-        console.log('Bids file not found');
-        return;
-      }
-
-      const bidsData = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
-      const updatedBids = bidsData.filter(bid => 
-        !finishedUrls.includes(bid.productUrl)
-      );
-
-      fs.writeFileSync(bidFilePath, JSON.stringify(updatedBids, null, 2));
-      console.log(`Removed ${finishedUrls.length} finished auctions from bids.json`);
-    } catch (error) {
-      console.error('Error removing finished auctions:', error);
+// Add this debugging method to help track what's happening
+async removeFinishedAuctions(finishedUrls) {
+  try {
+    const bidFilePath = path.resolve(__dirname, "../bids.json");
+    console.log('Attempting to remove finished auctions...');
+    console.log('Finished URLs:', finishedUrls);
+    
+    if (!fs.existsSync(bidFilePath)) {
+      console.log(`Bids file not found at path: ${bidFilePath}`);
+      return;
     }
-  }
 
+    // Read and log current bids
+    const data = fs.readFileSync(bidFilePath, 'utf8');
+    const bidsData = JSON.parse(data);
+    console.log('Current bids before removal:', bidsData.bids.length);
+    
+    // Filter out finished auctions
+    const originalLength = bidsData.bids.length;
+    bidsData.bids = bidsData.bids.filter(bid => {
+      const shouldKeep = !finishedUrls.includes(bid.productUrl);
+      if (!shouldKeep) {
+        console.log(`Removing finished auction: ${bid.productUrl}`);
+      }
+      return shouldKeep;
+    });
+
+    // Log the difference
+    const removedCount = originalLength - bidsData.bids.length;
+    console.log(`Removed ${removedCount} finished auctions`);
+    console.log('Remaining bids:', bidsData.bids.length);
+
+    // Write back to file
+    fs.writeFileSync(bidFilePath, JSON.stringify(bidsData, null, 2));
+    
+    if (removedCount > 0) {
+      console.log('Successfully updated bids.json');
+    } else {
+      console.log('No auctions were removed');
+    }
+    
+  } catch (error) {
+    console.error('Error in removeFinishedAuctions:', error);
+    // Log more details about the error
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+  }
+}
+
+async scrapeDetails(urls = []) {
+  const { browser, context } = await this.setupBrowser();
+  const finishedUrls = [];
+
+  try {
+    const detailedProducts = [];
+    console.log(`Starting to scrape details for ${urls.length} URLs`);
+
+    for (const productUrl of urls) {
+      const productPage = await context.newPage();
+      
+      try {
+        console.log(`Navigating to URL: ${productUrl}`);
+        
+        await productPage.goto(productUrl, {
+          waitUntil: 'load',
+          timeout: 45000
+        });
+
+        await productPage.waitForTimeout(3000);
+
+        const productDetails = await productPage.evaluate(() => {
+          // Your existing evaluate logic here...
+        });
+
+        console.log('Extracted Product Details:', JSON.stringify(productDetails, null, 2));
+
+        // Check if auction is finished - more robust check
+        const timeRemaining = productDetails.time_remaining.toLowerCase();
+        if (timeRemaining.includes('finished') || 
+            timeRemaining.includes('ended') || 
+            timeRemaining.includes('closed')) {
+          console.log(`Auction finished for URL: ${productUrl}`);
+          console.log('Time remaining value:', productDetails.time_remaining);
+          finishedUrls.push(productUrl);
+        }
+
+        detailedProducts.push(productDetails);
+      } catch (pageError) {
+        console.error(`Error scraping details for ${productUrl}:`, pageError);
+      } finally {
+        await productPage.close();
+      }
+    }
+
+    // Remove finished auctions from bids.json
+    if (finishedUrls.length > 0) {
+      console.log(`Found ${finishedUrls.length} finished auctions to remove`);
+      await this.removeFinishedAuctions(finishedUrls);
+    } else {
+      console.log('No finished auctions found to remove');
+    }
+
+    await browser.close();
+    return detailedProducts;
+  } catch (error) {
+    console.error("Details scraping error:", error.message);
+    await browser.close();
+    return [];
+  }
+}
 
   async scrapeDetails(urls = []) {
     const { browser, context } = await this.setupBrowser();
