@@ -36,9 +36,9 @@ class BuyeeScraper {
   }
 
   // Scrape search results and save to search.json
-  async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = 1) {
+  async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = null) {
     console.log('=== Starting search process ===');
-    console.log('Search parameters:', { term, minPrice, maxPrice, category, totalPages });
+    console.log('Search parameters:', { term, minPrice, maxPrice, category });
     
     const { browser, context } = await this.setupBrowser();
     console.log('Browser and context set up successfully');
@@ -46,35 +46,61 @@ class BuyeeScraper {
     try {
       const allProducts = [];
       console.log('Initialized products array');
-
+  
+      const pageInstance = await context.newPage();
+  
+      // Construct initial search URL
+      let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
+      if (category) searchUrl += `/category/${category}`;
+  
+      const params = [];
+      if (minPrice) params.push(`aucminprice=${minPrice}`);
+      if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
+      params.push("translationType=98");
+      if (params.length) searchUrl += `?${params.join("&")}`;
+  
+      await pageInstance.goto(searchUrl);
+  
+      // Extract total number of products
+      const totalProductsElement = await pageInstance.$('.result-num');
+      const totalProductsText = totalProductsElement 
+        ? await totalProductsElement.innerText() 
+        : '0 / 0';
+      
+      // Extract total from text like "1 - 20 / 77412 Treffer"
+      const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
+      const totalProducts = totalProductsMatch 
+        ? parseInt(totalProductsMatch[1], 10) 
+        : 0;
+  
+      const productsPerPage = 20; // Buyee's standard
+      
+      // Calculate total pages
+      const calculatedTotalPages = Math.min(
+        Math.ceil(totalProducts / productsPerPage), 
+        totalProducts < productsPerPage ? 1 : 10 // Limit to 10 pages or 1 page if less than 20 products
+      );
+      totalPages = totalPages || calculatedTotalPages;
+  
+      console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
+  
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
         console.log(`Processing page ${currentPage} of ${totalPages}`);
         const pageInstance = await context.newPage();
         console.log('New page instance created');
-
-        // Construct search URL
-        let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
-
-        // Add category to the URL if provided
-        if (category) {
-          searchUrl += `/category/${category}`;
-        }
-
-        // Query params
-        const params = [];
-        if (minPrice) params.push(`aucminprice=${minPrice}`);
-        if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
-        params.push(`page=${currentPage}`);
-        params.push("translationType=98");
-        if (params.length) searchUrl += `?${params.join("&")}`;
-
-        console.log(`Attempting to navigate to URL: ${searchUrl}`);
+  
+        // Construct search URL with page number
+        const pageSearchUrl = searchUrl.includes('?') 
+          ? `${searchUrl}&page=${currentPage}`
+          : `${searchUrl}?page=${currentPage}`;
+  
+        console.log(`Attempting to navigate to URL: ${pageSearchUrl}`);
         
-        await pageInstance.goto(searchUrl, {
+        await pageInstance.goto(pageSearchUrl, {
           waitUntil: "networkidle",
           timeout: 60000,
         });
-
+  
         try {
           await pageInstance.waitForSelector(".itemCard, .g-item-list, .p-items", { 
             timeout: 30000,
@@ -83,7 +109,7 @@ class BuyeeScraper {
           
           const items = await pageInstance.$$(".itemCard");
           console.log(`Found ${items.length} items on page ${currentPage}`);
-
+  
           for (const item of items) {
             try {
               console.log('Processing item...');
@@ -102,18 +128,18 @@ class BuyeeScraper {
               }
               
               if (!url.startsWith("http")) url = `${this.baseUrl}${url}`;
-
+  
               const imgElement = await item.$(".g-thumbnail__image");
               const imgSrc = imgElement
                 ? (await imgElement.getAttribute("data-src")) ||
                   (await imgElement.getAttribute("src"))
                 : null;
-
+  
               const priceElement = await item.$(".g-price");
               const price = priceElement
                 ? await priceElement.innerText()
                 : "Price Not Available";
-
+  
               // Extract time remaining - multiple selector approach
               let timeRemaining = 'Time Not Available';
               const timeElements = [
@@ -121,7 +147,7 @@ class BuyeeScraper {
                 await item.$('.g-text--attention'),
                 await item.$('.timeLeft')
               ];
-
+  
               for (const timeEl of timeElements) {
                 if (timeEl) {
                   try {
@@ -130,7 +156,7 @@ class BuyeeScraper {
                   } catch {}
                 }
               }
-
+  
               console.log('Item processed successfully:', { title, url });
               allProducts.push({
                 title,
@@ -143,7 +169,7 @@ class BuyeeScraper {
               console.error('Error processing individual item:', itemError);
             }
           }
-
+  
           console.log(`Completed processing page ${currentPage}`);
           await pageInstance.close();
         } catch (error) {
@@ -152,13 +178,13 @@ class BuyeeScraper {
           continue;
         }
       }
-
+  
       // Save all products to search.json
       const filePath = path.join(__dirname, "search.json");
       console.log(`Saving results to ${filePath}`);
       fs.writeFileSync(filePath, JSON.stringify(allProducts, null, 2), "utf-8");
       console.log(`Successfully saved ${allProducts.length} products to file`);
-
+  
       console.log('=== Search completed successfully ===');
       console.log(`Total products found: ${allProducts.length}`);
       await browser.close();
