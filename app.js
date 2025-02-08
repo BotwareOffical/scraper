@@ -6,7 +6,6 @@ const logger = require('morgan');
 const fs = require('fs');
 const path = require('path');
 const bidFilePath = path.resolve(__dirname, './data/bids.json');
-const SERVER_TIMEOUT = 300000; // 5 minutes
 
 const app = express();
 
@@ -361,6 +360,7 @@ app.use((err, req, res, next) => {
   });
 });
 
+const SERVER_TIMEOUT = 300000; // 5 minutes
 const PORT = process.env.PORT || 10000;
 const server = app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 server.timeout = SERVER_TIMEOUT;
