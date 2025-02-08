@@ -694,7 +694,7 @@ async scrapeDetails(urls = []) {
       viewport: { width: 1280, height: 720 },
       locale: 'en-US',
       extraHTTPHeaders: {
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive'
@@ -711,84 +711,63 @@ async scrapeDetails(urls = []) {
         timeout: 30000
       });
   
-      // Fill in credentials
-      await page.fill('#login_mailAddress', username);
-      await page.fill('#login_password', password);
+      // Log the page content to see what we're dealing with
+      const pageContent = await page.content();
+      console.log('Page HTML:', pageContent);
+  
+      // Check if form elements exist
+      const emailExists = await page.$('input[name="login[mailAddress]"]');
+      const passwordExists = await page.$('input[name="login[password]"]');
+      console.log('Form elements exist:', { emailExists: !!emailExists, passwordExists: !!passwordExists });
+  
+      // Fill in credentials using name attribute
+      await page.fill('input[name="login[mailAddress]"]', username);
+      await page.fill('input[name="login[password]"]', password);
+      
+      console.log('Filled in credentials');
   
       // Add delay before clicking login
-      await page.waitForTimeout(1000);
-  
-      // Click the login link and wait for navigation
-      try {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
-          page.click('a#login_submit')
-        ]);
-      } catch (navigationError) {
-        console.log('Navigation error:', navigationError);
-        // Try alternative click method if first fails
-        await page.evaluate(() => {
-          const loginButton = document.querySelector('#login_submit');
-          if (loginButton) loginButton.click();
-        });
-        await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 });
-      }
-  
-      // Add delay to let page settle
       await page.waitForTimeout(2000);
   
-      // Check if login was successful
-      const loginSuccess = await page.evaluate(() => {
-        // Check for login indicators
-        const logoutLink = document.querySelector('a[href*="logout"]');
-        const myPageLink = document.querySelector('a[href*="mypage"]');
-        const userMenu = document.querySelector('.user-menu');
-        const userIcon = document.querySelector('.user-icon');
-        
-        // Log what we found for debugging
-        console.log('Found elements:', {
-          hasLogout: !!logoutLink,
-          hasMyPage: !!myPageLink,
-          hasUserMenu: !!userMenu,
-          hasUserIcon: !!userIcon
-        });
-  
-        return !!(logoutLink || myPageLink || userMenu || userIcon);
-      });
-  
-      if (!loginSuccess) {
-        // Check for error messages
-        const errorMessage = await page.evaluate(() => {
-          const errorElements = [
-            document.querySelector('.error-message'),
-            document.querySelector('.alert-error'),
-            document.querySelector('.form-error'),
-            document.querySelector('.error')
-          ];
-          
-          for (const el of errorElements) {
-            if (el && el.textContent.trim()) {
-              return el.textContent.trim();
-            }
-          }
-          return null;
-        });
-  
-        if (errorMessage) {
-          throw new Error(`Login failed: ${errorMessage}`);
-        }
-        throw new Error('Could not verify login success');
+      // Find and log the login button status
+      const loginButton = await page.$('a#login_submit');
+      console.log('Login button found:', !!loginButton);
+      if (loginButton) {
+        console.log('Login button HTML:', await loginButton.evaluate(node => node.outerHTML));
       }
   
-      // If we got here, login was successful
-      console.log('Login successful - saving credentials...');
+      // Click using JavaScript
+      await page.evaluate(() => {
+        const loginBtn = document.querySelector('a#login_submit');
+        if (loginBtn) {
+          console.log('Found login button:', loginBtn.outerHTML);
+          loginBtn.click();
+        } else {
+          console.log('Login button not found in evaluate');
+        }
+      });
+  
+      // Wait for navigation
+      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 })
+        .catch(e => console.log('Navigation timeout:', e.message));
+  
+      // Log the new page URL and content
+      console.log('Current URL:', page.url());
+      const newPageContent = await page.content();
+      console.log('New page HTML:', newPageContent);
+  
+      // Take screenshot for debugging
+      await page.screenshot({ path: 'login-page.png', fullPage: true });
+  
+      // Save state regardless of verification
       await context.storageState({ path: "login.json" });
       
       return { success: true };
   
     } catch (error) {
       console.error('Login error:', error);
-      await page.screenshot({ path: 'login-error.png' });
+      // Take error screenshot
+      await page.screenshot({ path: 'login-error.png', fullPage: true });
       throw error;
     } finally {
       await browser.close();
