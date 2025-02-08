@@ -690,15 +690,8 @@ async scrapeDetails(urls = []) {
     });
     
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 720 },
-      locale: 'en-US',
-      extraHTTPHeaders: {
-        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive'
-      }
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
   
     const page = await context.newPage();
@@ -711,63 +704,34 @@ async scrapeDetails(urls = []) {
         timeout: 30000
       });
   
-      // Log the page content to see what we're dealing with
-      const pageContent = await page.content();
-      console.log('Page HTML:', pageContent);
+      // Fill the form fields
+      await page.fill('#login_mailAddress', username);
+      await page.waitForTimeout(500);
+      await page.fill('#login_password', password);
+      await page.waitForTimeout(500);
   
-      // Check if form elements exist
-      const emailExists = await page.$('input[name="login[mailAddress]"]');
-      const passwordExists = await page.$('input[name="login[password]"]');
-      console.log('Form elements exist:', { emailExists: !!emailExists, passwordExists: !!passwordExists });
-  
-      // Fill in credentials using name attribute
-      await page.fill('input[name="login[mailAddress]"]', username);
-      await page.fill('input[name="login[password]"]', password);
-      
-      console.log('Filled in credentials');
-  
-      // Add delay before clicking login
-      await page.waitForTimeout(2000);
-  
-      // Find and log the login button status
-      const loginButton = await page.$('a#login_submit');
-      console.log('Login button found:', !!loginButton);
-      if (loginButton) {
-        console.log('Login button HTML:', await loginButton.evaluate(node => node.outerHTML));
+      // Get the form element
+      const form = await page.$('#login_form');
+      if (!form) {
+        throw new Error('Login form not found');
       }
   
-      // Click using JavaScript
+      // Submit the form using JavaScript click on the login button
       await page.evaluate(() => {
-        const loginBtn = document.querySelector('a#login_submit');
-        if (loginBtn) {
-          console.log('Found login button:', loginBtn.outerHTML);
-          loginBtn.click();
-        } else {
-          console.log('Login button not found in evaluate');
-        }
+        document.querySelector('#login_submit').click();
       });
   
       // Wait for navigation
-      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 })
-        .catch(e => console.log('Navigation timeout:', e.message));
+      await page.waitForNavigation({ timeout: 30000 });
   
-      // Log the new page URL and content
-      console.log('Current URL:', page.url());
-      const newPageContent = await page.content();
-      console.log('New page HTML:', newPageContent);
-  
-      // Take screenshot for debugging
-      await page.screenshot({ path: 'login-page.png', fullPage: true });
-  
-      // Save state regardless of verification
+      // Save login state immediately
       await context.storageState({ path: "login.json" });
       
       return { success: true };
   
     } catch (error) {
       console.error('Login error:', error);
-      // Take error screenshot
-      await page.screenshot({ path: 'login-error.png', fullPage: true });
+      await page.screenshot({ path: 'login-error.png' });
       throw error;
     } finally {
       await browser.close();
