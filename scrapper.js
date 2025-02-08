@@ -81,7 +81,7 @@ class BuyeeScraper {
       // Calculate total pages
       const calculatedTotalPages = Math.min(
         Math.ceil(totalProducts / productsPerPage), 
-        totalProducts < productsPerPage ? 1 : 5 // Limit to 5 pages instead of 10
+        totalProducts < productsPerPage ? 1 : 3 // Limit to 5 pages instead of 10
       );
       totalPages = totalPages || calculatedTotalPages;
   
