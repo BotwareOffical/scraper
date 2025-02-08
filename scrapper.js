@@ -48,7 +48,9 @@ class BuyeeScraper {
       console.log('Initialized products array');
   
       const pageInstance = await context.newPage();
-  
+      pageInstance.setDefaultTimeout(2000000);  // Add this line
+      pageInstance.setDefaultNavigationTimeout(2000000);  // Add this line
+      
       // Construct initial search URL
       let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
       if (category) searchUrl += `/category/${category}`;
@@ -87,6 +89,9 @@ class BuyeeScraper {
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
         console.log(`Processing page ${currentPage} of ${totalPages}`);
         const pageInstance = await context.newPage();
+        pageInstance.setDefaultTimeout(2000000);  // Add this line
+        pageInstance.setDefaultNavigationTimeout(2000000);  // Add this line
+
         console.log('New page instance created');
   
         // Construct search URL with page number
@@ -98,12 +103,12 @@ class BuyeeScraper {
         
         await pageInstance.goto(pageSearchUrl, {
           waitUntil: "networkidle",
-          timeout: 60000,
+          timeout: 200000,
         });
   
         try {
           await pageInstance.waitForSelector(".itemCard, .g-item-list, .p-items", { 
-            timeout: 30000,
+            timeout: 200000,
             state: 'attached'
           });
           
