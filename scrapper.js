@@ -706,73 +706,90 @@ async scrapeDetails(urls = []) {
     try {
       console.log('Starting login process...');
       
-      // Navigate to login page with proper wait
       await page.goto("https://buyee.jp/signup/login", {
         waitUntil: 'networkidle',
         timeout: 30000
       });
   
-      // Wait for and verify form elements
-      const emailInput = await page.waitForSelector('#login_mailAddress', { state: 'visible' });
-      const passwordInput = await page.waitForSelector('#login_password', { state: 'visible' });
-      const submitButton = await page.waitForSelector('#login_submit', { state: 'visible' });
+      // Fill in credentials
+      await page.fill('#login_mailAddress', username);
+      await page.fill('#login_password', password);
   
-      if (!emailInput || !passwordInput || !submitButton) {
-        throw new Error('Login form elements not found');
-      }
-  
-      // Clear fields and enter credentials
-      await emailInput.click({ clickCount: 3 });
-      await emailInput.press('Backspace');
-      await emailInput.fill(username);
-  
-      await passwordInput.click({ clickCount: 3 });
-      await passwordInput.press('Backspace');
-      await passwordInput.fill(password);
-  
-      // Add delay before clicking submit
+      // Add delay before clicking login
       await page.waitForTimeout(1000);
   
-      // Click submit and wait for navigation
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
-        submitButton.click()
-      ]);
+      // Click the login link and wait for navigation
+      try {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
+          page.click('a#login_submit')
+        ]);
+      } catch (navigationError) {
+        console.log('Navigation error:', navigationError);
+        // Try alternative click method if first fails
+        await page.evaluate(() => {
+          const loginButton = document.querySelector('#login_submit');
+          if (loginButton) loginButton.click();
+        });
+        await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 });
+      }
   
-      // Verify login success multiple ways
-      const isLoggedIn = await page.evaluate(() => {
-        // Check multiple indicators of successful login
+      // Add delay to let page settle
+      await page.waitForTimeout(2000);
+  
+      // Check if login was successful
+      const loginSuccess = await page.evaluate(() => {
+        // Check for login indicators
+        const logoutLink = document.querySelector('a[href*="logout"]');
         const myPageLink = document.querySelector('a[href*="mypage"]');
         const userMenu = document.querySelector('.user-menu');
-        const logoutButton = document.querySelector('a[href*="logout"]');
-        const welcomeText = document.querySelector('.welcome-text');
-        return !!(myPageLink || userMenu || logoutButton || welcomeText);
+        const userIcon = document.querySelector('.user-icon');
+        
+        // Log what we found for debugging
+        console.log('Found elements:', {
+          hasLogout: !!logoutLink,
+          hasMyPage: !!myPageLink,
+          hasUserMenu: !!userMenu,
+          hasUserIcon: !!userIcon
+        });
+  
+        return !!(logoutLink || myPageLink || userMenu || userIcon);
       });
   
-      if (!isLoggedIn) {
+      if (!loginSuccess) {
         // Check for error messages
         const errorMessage = await page.evaluate(() => {
-          const errorElement = document.querySelector('.error-message, .alert-error, .form-error');
-          return errorElement ? errorElement.textContent.trim() : null;
+          const errorElements = [
+            document.querySelector('.error-message'),
+            document.querySelector('.alert-error'),
+            document.querySelector('.form-error'),
+            document.querySelector('.error')
+          ];
+          
+          for (const el of errorElements) {
+            if (el && el.textContent.trim()) {
+              return el.textContent.trim();
+            }
+          }
+          return null;
         });
   
         if (errorMessage) {
           throw new Error(`Login failed: ${errorMessage}`);
         }
-        throw new Error('Login verification failed');
+        throw new Error('Could not verify login success');
       }
   
-      // Save successful login state
+      // If we got here, login was successful
       console.log('Login successful - saving credentials...');
       await context.storageState({ path: "login.json" });
       
-      return { success: true, message: 'Login successful' };
+      return { success: true };
   
     } catch (error) {
       console.error('Login error:', error);
-      // Take screenshot for debugging
       await page.screenshot({ path: 'login-error.png' });
-      throw new Error(`Login failed: ${error.message}`);
+      throw error;
     } finally {
       await browser.close();
     }
