@@ -32,6 +32,17 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 
+app.use((err, req, res, next) => {
+  if (err.name === 'CORS Error') {
+    console.error('CORS Error:', {
+      origin: req.headers.origin,
+      method: req.method,
+      path: req.path
+    });
+  }
+  next(err);
+});
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -172,6 +183,8 @@ app.post('/search', async (req, res, next) => {
     console.log(`[${searchId}] Final results: ${results.length}, Errors: ${errors.length}`);
 
     if (results.length > 0 || hasPartialSuccess) {
+      res.header('Access-Control-Allow-Origin', req.headers.origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
       res.json({
         success: true,
         results,
