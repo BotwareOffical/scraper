@@ -1,1 +1,1 @@
-web: npm start
+node --max-old-space-size=512 app.js
