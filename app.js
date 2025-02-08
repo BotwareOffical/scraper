@@ -122,10 +122,22 @@ app.post('/search', async (req, res, next) => {
     const errors = [];
     let hasPartialSuccess = false;
 
-    const batchSize = 1; // Keep existing batch logic
+    // Limit concurrent searches to prevent overwhelming resources
+    const batchSize = 1; 
     const totalBatches = Math.ceil(searchTerms.length / batchSize);
 
+    // Increase overall timeout to 10 minutes
+    const GLOBAL_TIMEOUT = 600000; // 10 minutes
+    const operationTimeout = setTimeout(() => {
+      throw new Error('Global search operation timed out');
+    }, GLOBAL_TIMEOUT);
+
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      // Add more aggressive timeout checking
+      if (Date.now() - startTime > GLOBAL_TIMEOUT) {
+        throw new Error('Search operation exceeded maximum time limit');
+      }
+
       const batchStartTime = Date.now();
       const startIndex = batchIndex * batchSize;
       const batch = searchTerms.slice(startIndex, startIndex + batchSize);
@@ -139,13 +151,24 @@ app.post('/search', async (req, res, next) => {
           const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
           console.log(`[${searchId}] Starting search for "${term}"`);
           
-          const termResults = await scraper.scrapeSearchResults(
+          // Limit search depth and add timeout to individual term search
+          const termResultPromise = scraper.scrapeSearchResults(
             term, 
             minPrice, 
             maxPrice, 
             '23000', 
-            5 // Maximum 5 pages per search term
+            3 // Reduced from 5 to 3 pages
           );
+
+          // Add individual term search timeout
+          const termSearchTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`Timeout searching term: ${term}`)), 60000)
+          );
+
+          const termResults = await Promise.race([
+            termResultPromise, 
+            termSearchTimeout
+          ]);
           
           const duration = ((Date.now() - termStartTime) / 1000).toFixed(2);
           console.log(`[${searchId}] Completed "${term}" in ${duration}s with ${termResults.length} results`);
@@ -186,6 +209,9 @@ app.post('/search', async (req, res, next) => {
         continue;
       }
     }
+
+    // Clear the global timeout
+    clearTimeout(operationTimeout);
 
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
