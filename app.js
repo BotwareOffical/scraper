@@ -95,6 +95,7 @@ app.post('/place-bid', async (req, res) => {
     });
   }
 });
+
 app.post('/search', async (req, res, next) => {
   const startTime = Date.now();
   const searchId = Math.random().toString(36).substring(7);
@@ -117,7 +118,7 @@ app.post('/search', async (req, res, next) => {
     const errors = [];
     let hasPartialSuccess = false;
 
-    const batchSize = 2; // Reduced batch size for testing
+    const batchSize = 1; // Reduce to 1 to minimize concurrent requests
     const totalBatches = Math.ceil(searchTerms.length / batchSize);
 
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
@@ -134,7 +135,14 @@ app.post('/search', async (req, res, next) => {
           const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
           console.log(`[${searchId}] Starting search for "${term}"`);
           
-          const termResults = await scraper.scrapeSearchResults(term, minPrice, maxPrice);
+          // Limit results per search term
+          const termResults = await scraper.scrapeSearchResults(
+            term, 
+            minPrice, 
+            maxPrice, 
+            '23000', 
+            5 // Maximum 5 pages per search term
+          );
           
           const duration = ((Date.now() - termStartTime) / 1000).toFixed(2);
           console.log(`[${searchId}] Completed "${term}" in ${duration}s with ${termResults.length} results`);
@@ -163,10 +171,8 @@ app.post('/search', async (req, res, next) => {
         console.log(`[${searchId}] Batch ${batchIndex + 1} completed in ${batchDuration}s`);
         console.log(`[${searchId}] Total results so far: ${results.length}`);
 
-        if (batchIndex < totalBatches - 1) {
-          console.log(`[${searchId}] Adding delay between batches...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+        // Increase delay between batches to reduce server load
+        await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (batchError) {
         console.error(`[${searchId}] Batch ${batchIndex + 1} failed:`, batchError);
         errors.push({
@@ -174,7 +180,6 @@ app.post('/search', async (req, res, next) => {
           error: batchError.message,
           time: new Date().toISOString()
         });
-        // Continue with next batch instead of failing completely
         continue;
       }
     }

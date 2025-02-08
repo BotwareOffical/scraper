@@ -47,9 +47,10 @@ class BuyeeScraper {
       const allProducts = [];
       console.log('Initialized products array');
   
+      // Create a single page and reuse it
       const pageInstance = await context.newPage();
-      pageInstance.setDefaultTimeout(2000000);  // Add this line
-      pageInstance.setDefaultNavigationTimeout(2000000);  // Add this line
+      pageInstance.setDefaultTimeout(2000000);
+      pageInstance.setDefaultNavigationTimeout(2000000);
       
       // Construct initial search URL
       let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
@@ -80,19 +81,13 @@ class BuyeeScraper {
       // Calculate total pages
       const calculatedTotalPages = Math.min(
         Math.ceil(totalProducts / productsPerPage), 
-        totalProducts < productsPerPage ? 1 : 10 // Limit to 10 pages or 1 page if less than 20 products
+        totalProducts < productsPerPage ? 1 : 5 // Limit to 5 pages instead of 10
       );
       totalPages = totalPages || calculatedTotalPages;
   
       console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
   
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
-        const pageInstance = await context.newPage();
-        pageInstance.setDefaultTimeout(2000000);  // Add this line
-        pageInstance.setDefaultNavigationTimeout(2000000);  // Add this line
-
-        console.log('New page instance created');
-  
         // Construct search URL with page number
         const pageSearchUrl = searchUrl.includes('?') 
           ? `${searchUrl}&page=${currentPage}`
@@ -171,10 +166,16 @@ class BuyeeScraper {
           }
   
           console.log(`Completed processing page ${currentPage}`);
-          await pageInstance.close();
+  
+          // Clear page content to reduce memory usage
+          await pageInstance.evaluate(() => {
+            document.body.innerHTML = '';
+          });
+  
+          // Add a small delay between pages to prevent overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (error) {
           console.log(`No items found on page ${currentPage}. Error:`, error.message);
-          await pageInstance.close();
           continue;
         }
       }
@@ -187,9 +188,12 @@ class BuyeeScraper {
   
       console.log('=== Search completed successfully ===');
       console.log(`Total products found: ${allProducts.length}`);
-      await browser.close();
-      return allProducts;
       
+      // Close browser and page
+      await pageInstance.close();
+      await browser.close();
+      
+      return allProducts;
     } catch (error) {
       console.error('=== Search failed ===');
       console.error('Error details:', {
@@ -197,12 +201,13 @@ class BuyeeScraper {
         stack: error.stack,
         name: error.name
       });
+      
+      // Ensure browser is closed even if an error occurs
       await browser.close();
       return [];
     }
   }
 
-    // Add this method to the BuyeeScraper class
 // Add this debugging method to help track what's happening
 async removeFinishedAuctions(finishedUrls) {
   try {
