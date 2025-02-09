@@ -12,16 +12,13 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      console.log('Starting browser setup...');
       
       // Basic Linux-compatible configuration
       const browser = await chromium.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
-      
-      console.log('Browser launched successfully');
-      
+            
       const context = await browser.newContext({
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -114,8 +111,7 @@ class BuyeeScraper {
           });
           
           const items = await pageInstance.$$(".itemCard");
-          console.log(`Found ${items.length} items on page ${currentPage}`);
-  
+
           for (const item of items) {
             try {
               const titleElement = await item.$(".itemCard__itemName a");
@@ -176,9 +172,7 @@ class BuyeeScraper {
               console.error('Error processing individual item:', itemError);
             }
           }
-  
-          console.log(`Completed processing page ${currentPage}`);
-  
+    
           // Clear page content to reduce memory usage
           await pageInstance.evaluate(() => {
             document.body.innerHTML = '';
