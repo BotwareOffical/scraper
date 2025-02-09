@@ -164,83 +164,101 @@ class BuyeeScraper {
     });
 
     try {
-        // Read and verify login state
-        let loginData;
-        try {
-            loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
-            console.log('Found stored login data:', {
-                hasCookies: !!loginData.cookies,
-                cookieCount: loginData.cookies?.length,
-                hasOtherbuyee: loginData.cookies?.some(c => c.name === 'otherbuyee')
-            });
-        } catch (error) {
-            console.error('Error reading login.json:', error);
-            throw new Error('No valid login session found');
-        }
-
-        // Create context with stored login state
         const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            storageState: "login.json",
+            viewport: { width: 1280, height: 720 },
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
-
-        // Manually set the cookies
-        await context.addCookies(loginData.cookies);
 
         const page = await context.newPage();
         page.setDefaultTimeout(60000);
         page.setDefaultNavigationTimeout(60000);
 
         // Navigate to product
-        console.log('Navigating to product...');
+        console.log('Navigating to:', productUrl);
         await page.goto(productUrl, { waitUntil: 'networkidle' });
-        
-        // Verify login state
-        const cookies = await context.cookies();
-        console.log('Current cookies:', {
-            count: cookies.length,
-            names: cookies.map(c => c.name).join(', ')
-        });
+        await page.waitForTimeout(2000);
 
-        // Check if we're actually logged in
-        if (!cookies.some(c => c.name === 'otherbuyee')) {
-            console.error('Not properly logged in');
-            throw new Error('Login session invalid');
+        // Check if we're logged in and on the right page
+        const currentUrl = page.url();
+        console.log('Current URL:', currentUrl);
+
+        // If redirected to login, we need to handle that
+        if (currentUrl.includes('signup/login')) {
+            console.log('Redirected to login page - session invalid');
+            throw new Error('Login session expired');
         }
 
         // Find and click bid button
         console.log('Looking for bid button...');
-        await page.waitForSelector('#bidNow', { state: 'visible', timeout: 20000 });
+        const bidButton = page.locator('#bidNow');
+        await bidButton.waitFor({ state: 'visible', timeout: 20000 });
         
-        // Take screenshot before clicking
-        await page.screenshot({ path: 'before-bid-click.png' });
+        // Click and wait for form in popup/new page
+        console.log('Clicking bid button...');
+        const [newPage] = await Promise.all([
+            context.waitForEvent('page').catch(() => null),  // Wait for popup
+            page.waitForNavigation().catch(() => null),      // Wait for navigation
+            bidButton.click()                                // Click the button
+        ]);
+
+        // Determine which page to use (popup or navigated)
+        const bidPage = newPage || page;
+        await bidPage.waitForLoadState('networkidle');
         
-        // Click the button and wait for form
-        await page.click('#bidNow');
-        await page.waitForTimeout(2000);
+        console.log('After click URL:', bidPage.url());
 
-        // Take screenshot after clicking
-        await page.screenshot({ path: 'after-bid-click.png' });
+        // Check if we got redirected to login
+        if (bidPage.url().includes('signup/login')) {
+            console.log('Redirected to login after bid click');
+            throw new Error('Login required for bidding');
+        }
 
-        // Check if we're still on the same page and look for the bid form
-        console.log('Current URL:', page.url());
-        console.log('Looking for bid form...');
+        // Wait specifically for the bid form section to load
+        console.log('Waiting for bid form to load...');
+        await bidPage.waitForSelector('.bidInput__main', { timeout: 30000 });
 
-        // Wait for and fill the bid form
-        await page.waitForSelector('#bidYahoo_price', { state: 'visible', timeout: 20000 });
-        await page.fill('#bidYahoo_price', bidAmount.toString());
+        // Verify we have the bid form
+        const formExists = await bidPage.locator('#bid_form').count() > 0;
+        console.log('Bid form exists:', formExists);
+
+        if (!formExists) {
+            const content = await bidPage.content();
+            console.log('Page content preview:', content.substring(0, 500));
+            throw new Error('Bid form not found on page');
+        }
+
+        // Now fill the form
+        console.log('Filling bid amount:', bidAmount);
+        await bidPage.fill('#bidYahoo_price', bidAmount.toString());
+        await bidPage.waitForTimeout(1000);
 
         // Select lite plan
-        await page.selectOption('#bidYahoo_plan', '99');
+        console.log('Selecting plan...');
+        await bidPage.selectOption('#bidYahoo_plan', '99');
+        await bidPage.waitForTimeout(1000);
 
-        // Select payment method
-        await page.check('#bidYahoo_payment_method_type_2'); // PayPal
+        // Make sure PayPal is selected
+        console.log('Selecting payment method...');
+        await bidPage.check('#bidYahoo_payment_method_type_2');
+        await bidPage.waitForTimeout(1000);
 
-        // Submit bid
-        await page.click('#bid_submit');
-        await page.waitForTimeout(3000);
+        // Submit the bid
+        console.log('Submitting bid...');
+        await bidPage.click('#bid_submit');
 
-        // Take final screenshot
-        await page.screenshot({ path: 'after-submit.png' });
+        // Wait for confirmation
+        await bidPage.waitForTimeout(3000);
+
+        // Check for any error messages
+        const errorMessage = await bidPage.evaluate(() => {
+            const errorEl = document.querySelector('.error-message, .alert-error, .inner_alert');
+            return errorEl ? errorEl.textContent : null;
+        });
+
+        if (errorMessage) {
+            throw new Error(`Bid error: ${errorMessage}`);
+        }
 
         return {
             success: true,
@@ -248,10 +266,10 @@ class BuyeeScraper {
         };
 
     } catch (error) {
-        console.error('Bid error:', error);
+        console.error('Bid placement error:', error);
         return {
             success: false,
-            message: error.message
+            message: error.message || 'Failed to place bid'
         };
     } finally {
         if (browser) {
