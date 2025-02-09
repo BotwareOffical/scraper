@@ -152,129 +152,131 @@ class BuyeeScraper {
     }
   }
 
-// scrapper.js (updated)
-async placeBid(productUrl, bidAmount) {
-  // Check session validity first
-  const isLoggedIn = await this.checkLoginState();
-  if (!isLoggedIn) {
-    console.log('Session expired - refreshing login');
-    await this.refreshLoginSession();
-  }
+  // scrapper.js (updated)
+  async placeBid(productUrl, bidAmount) {
+    // Check session validity first
+    const isLoggedIn = await this.checkLoginState();
+    if (!isLoggedIn) {
+      console.log('Session expired - refreshing login');
+      await this.refreshLoginSession();
+    }
 
-  const browser = await chromium.launch({
-    headless: true, // Keep false for debugging
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-web-security'
-    ]
-  });
-
-  try {
-    const context = await browser.newContext({
-      storageState: "login.json",
-      viewport: { width: 1920, height: 1080 }, // Larger viewport
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' // Updated UA
+    const browser = await chromium.launch({
+      headless: true, // Keep false for debugging
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security'
+      ]
     });
 
-    // Set critical headers
-    await context.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': productUrl,
-      'Priority': 'u=0, i'
-    });
+    let page; // Declare page variable here
 
-    const page = await context.newPage();
-    
-    // Debug: Log network activity
-    page.on('response', response => {
-      console.log(`<< ${response.status()} ${response.url()}`);
-      if (response.status() === 302) {
-        console.log('Redirect detected to:', response.headers().location);
-      }
-    });
-
-    console.log('Navigating to:', productUrl);
-    await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
-
-    // Remove potential overlays
-    await page.evaluate(() => {
-      const elements = document.querySelectorAll('.overlay, .cookie-banner');
-      elements.forEach(el => el.remove());
-    });
-
-    // Click bid button with enhanced handling
-    console.log('Clicking bid button...');
-    const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
-    await bidButton.click();
-    
-    // Wait for dynamic content (modal/form)
-    console.log('Waiting for bid form...');
     try {
-      // First check for modal approach
-      await page.waitForSelector('.modal-body #bidYahoo_price', { 
-        timeout: 10000,
-        state: 'visible' 
+      const context = await browser.newContext({
+        storageState: "login.json",
+        viewport: { width: 1920, height: 1080 }, // Larger viewport
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' // Updated UA
       });
-      console.log('Found modal-based bid form');
-    } catch {
-      // Fallback to direct form detection
-      await page.waitForSelector('#bid_form', { timeout: 10000 });
-      console.log('Found standard bid form');
-    }
 
-    // Visual verification
-    await page.screenshot({ path: 'bid-form-loaded.png' });
+      // Set critical headers
+      await context.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': productUrl,
+        'Priority': 'u=0, i'
+      });
 
-    // Fill form with retry logic
-    await this.retry(async () => {
-      await page.fill('#bidYahoo_price', bidAmount.toString());
-      await page.selectOption('#bidYahoo_plan', '99');
-      await page.check('#bidYahoo_payment_method_type_2');
-    }, 3);
+      page = await context.newPage(); // Initialize page here
+      
+      // Debug: Log network activity
+      page.on('response', response => {
+        console.log(`<< ${response.status()} ${response.url()}`);
+        if (response.status() === 302) {
+          console.log('Redirect detected to:', response.headers().location);
+        }
+      });
 
-    // Submit and verify
-    console.log('Submitting bid...');
-    const [response] = await Promise.all([
-      page.waitForNavigation({ timeout: 30000 }),
-      page.click('#bid_submit')
-    ]);
+      console.log('Navigating to:', productUrl);
+      await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
 
-    // Verify success
-    if (response.url().includes('/bid/confirm')) {
-      console.log('Bid confirmed successfully');
-      return { success: true, message: `Bid of ${bidAmount} placed` };
-    }
+      // Remove potential overlays
+      await page.evaluate(() => {
+        const elements = document.querySelectorAll('.overlay, .cookie-banner');
+        elements.forEach(el => el.remove());
+      });
 
-    throw new Error('Bid confirmation page not reached');
-
-  } catch (error) {
-    await page.screenshot({ path: 'bid-error.png' });
-    console.error('Bid failure:', error);
-    return { 
-      success: false, 
-      message: `Bid failed: ${error.message}`,
-      debug: {
-        url: page?.url(),
-        cookies: await context?.cookies()
+      // Click bid button with enhanced handling
+      console.log('Clicking bid button...');
+      const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
+      await bidButton.click();
+      
+      // Wait for dynamic content (modal/form)
+      console.log('Waiting for bid form...');
+      try {
+        // First check for modal approach
+        await page.waitForSelector('.modal-body #bidYahoo_price', { 
+          timeout: 10000,
+          state: 'visible' 
+        });
+        console.log('Found modal-based bid form');
+      } catch {
+        // Fallback to direct form detection
+        await page.waitForSelector('#bid_form', { timeout: 10000 });
+        console.log('Found standard bid form');
       }
-    };
-  } finally {
-    await browser.close();
-  }
-}
 
-// Add retry utility
-async retry(fn, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
+      // Visual verification
+      await page.screenshot({ path: 'bid-form-loaded.png' });
+
+      // Fill form with retry logic
+      await this.retry(async () => {
+        await page.fill('#bidYahoo_price', bidAmount.toString());
+        await page.selectOption('#bidYahoo_plan', '99');
+        await page.check('#bidYahoo_payment_method_type_2');
+      }, 3);
+
+      // Submit and verify
+      console.log('Submitting bid...');
+      const [response] = await Promise.all([
+        page.waitForNavigation({ timeout: 30000 }),
+        page.click('#bid_submit')
+      ]);
+
+      // Verify success
+      if (response.url().includes('/bid/confirm')) {
+        console.log('Bid confirmed successfully');
+        return { success: true, message: `Bid of ${bidAmount} placed` };
+      }
+
+      throw new Error('Bid confirmation page not reached');
+
     } catch (error) {
-      if (i === retries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await page?.screenshot({ path: 'bid-error.png' }); // Use optional chaining to avoid errors if page is undefined
+      console.error('Bid failure:', error);
+      return { 
+        success: false, 
+        message: `Bid failed: ${error.message}`,
+        debug: {
+          url: page?.url(),
+          cookies: await context?.cookies()
+        }
+      };
+    } finally {
+      await browser?.close(); // Use optional chaining to avoid errors if browser is undefined
     }
   }
-}
+
+  // Add retry utility
+  async retry(fn, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
   
   async checkLoginState() {
     try {
