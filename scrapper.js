@@ -296,77 +296,99 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
+    // Match the successful browser configuration from scrapeSearchResults
     const browser = await chromium.launch({
         headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
+            '--window-size=1920,1080',
+            '--disable-features=IsolateOrigins',
+            '--disable-site-isolation-trials',
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-dev-shm-usage'
         ]
     });
 
-    // Enhanced browser context with more realistic settings
+    // Enhanced context settings matching successful patterns
     const context = await browser.newContext({
         storageState: "login.json",
-        viewport: { width: 1920, height: 1080 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         extraHTTPHeaders: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
+            'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Linux"',
             'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0'
+            'DNT': '1'
         }
     });
 
     try {
         const page = await context.newPage();
-        
-        // Add additional headers specific to the page
+        page.setDefaultTimeout(300000);
+        page.setDefaultNavigationTimeout(300000);
+
+        // Add page-specific headers
         await page.setExtraHTTPHeaders({
-            'Referer': 'https://buyee.jp/item/search/category/2084005359',
+            'Referer': 'https://buyee.jp/',
             'Origin': 'https://buyee.jp'
         });
 
-        // Randomize timing between actions
-        const randomDelay = () => Math.floor(Math.random() * (2000 - 800) + 800);
-        
+        // Initial delay before navigation
+        await page.waitForTimeout(2000 + Math.random() * 1000);
+
         console.log('Attempting to navigate to:', productUrl);
-        
-        // Initial page load with retry mechanism
+
+        // Enhanced retry mechanism with session refresh
         let retryCount = 0;
-        const maxRetries = 3;
+        const maxRetries = 5;
         let pageLoaded = false;
 
         while (!pageLoaded && retryCount < maxRetries) {
             try {
+                // Clear previous session data on retry
+                if (retryCount > 0) {
+                    await context.clearCookies();
+                    await page.reload({ waitUntil: 'networkidle0' });
+                    await page.waitForTimeout(5000 + Math.random() * 3000);
+                }
+
+                // Navigate with more reliable wait conditions
                 await page.goto(productUrl, {
-                    waitUntil: 'networkidle',
+                    waitUntil: 'domcontentloaded',
                     timeout: 60000
                 });
 
+                // Wait for any dynamic content
+                await page.waitForTimeout(2000 + Math.random() * 2000);
+
+                // Check for 403 error
                 const pageContent = await page.content();
                 if (pageContent.includes('403 Forbidden')) {
                     console.warn(`Attempt ${retryCount + 1}: Encountered 403 Forbidden, retrying...`);
-                    await page.waitForTimeout(5000 + randomDelay());
                     retryCount++;
                     
-                    // Clear cookies and reload
-                    await context.clearCookies();
-                    await page.reload({ waitUntil: 'networkidle' });
-                } else {
+                    // Additional delay between retries
+                    await page.waitForTimeout(8000 + Math.random() * 4000);
+                    continue;
+                }
+
+                // Verify page loaded successfully
+                const pageTitle = await page.title();
+                if (!pageTitle.includes('403') && !pageContent.includes('403 Forbidden')) {
                     pageLoaded = true;
+                    console.log('Page loaded successfully');
                 }
             } catch (error) {
                 console.warn(`Attempt ${retryCount + 1} failed:`, error.message);
                 retryCount++;
-                await page.waitForTimeout(5000 + randomDelay());
+                await page.waitForTimeout(5000 + Math.random() * 3000);
             }
         }
 
@@ -374,25 +396,29 @@ class BuyeeScraper {
             throw new Error('Failed to load page after maximum retries');
         }
 
-        console.log('Page loaded successfully, proceeding with bid...');
+        // Simulate human-like behavior
+        await page.mouse.move(300 + Math.random() * 400, 200 + Math.random() * 300);
+        await page.waitForTimeout(1000 + Math.random() * 1000);
 
-        // Simulate more human-like behavior
-        await page.mouse.move(Math.random() * 500, Math.random() * 500);
-        await page.waitForTimeout(randomDelay());
-        
-        // Random scrolling behavior
+        // Natural scrolling
         await page.evaluate(() => {
-            const randomScroll = () => {
-                window.scrollBy(0, Math.random() * 100);
-            };
-            for (let i = 0; i < 3; i++) {
-                setTimeout(randomScroll, i * 500);
-            }
+            return new Promise((resolve) => {
+                let scrollTop = 0;
+                const maxScroll = Math.random() * 500;
+                const interval = setInterval(() => {
+                    window.scrollBy(0, 10);
+                    scrollTop += 10;
+                    if (scrollTop >= maxScroll) {
+                        clearInterval(interval);
+                        resolve();
+                    }
+                }, 100);
+            });
         });
-        
-        await page.waitForTimeout(randomDelay());
 
-        // Check for bid button with retry
+        await page.waitForTimeout(2000 + Math.random() * 1000);
+
+        // Verify bid button exists
         console.log('Checking for bid button...');
         const bidNowButton = page.locator("#bidNow");
         const bidButtonExists = await bidNowButton.count();
@@ -402,7 +428,7 @@ class BuyeeScraper {
             return { success: false, message: 'No "Bid Now" button found on the page' };
         }
 
-        // Extract product details with enhanced selectors
+        // Extract product details
         const productDetails = await page.evaluate(() => {
             const getElementText = (selectors) => {
                 for (const selector of selectors) {
@@ -414,10 +440,9 @@ class BuyeeScraper {
                 return null;
             };
 
-            const title = getElementText(['h1', '.itemName', '.itemInfo__name', '.productTitle']) || 'No Title';
+            const title = getElementText(['h1', '.itemName', '.itemInfo__name']) || 'No Title';
             let thumbnailUrl = null;
-            const imageSelectors = ['.flexslider .slides img', '.mainImage img', '.g-thumbnail__image', '.productImage img'];
-            
+            const imageSelectors = ['.flexslider .slides img', '.mainImage img', '.g-thumbnail__image'];
             for (const selector of imageSelectors) {
                 const imageElement = document.querySelector(selector);
                 if (imageElement) {
@@ -428,45 +453,33 @@ class BuyeeScraper {
             return { title, thumbnailUrl };
         });
 
-        // Click bid button with retry mechanism
-        let bidClickSuccess = false;
-        for (let i = 0; i < 3; i++) {
-            try {
-                await bidNowButton.click();
-                await page.waitForTimeout(randomDelay());
-                bidClickSuccess = true;
-                break;
-            } catch (error) {
-                console.warn(`Bid button click attempt ${i + 1} failed:`, error.message);
-                await page.waitForTimeout(2000);
-            }
-        }
+        // Click bid button with retry
+        await page.waitForTimeout(1000 + Math.random() * 1000);
+        await bidNowButton.click();
+        await page.waitForTimeout(2000 + Math.random() * 1000);
 
-        if (!bidClickSuccess) {
-            throw new Error('Failed to click bid button after multiple attempts');
-        }
-
-        // Fill in the bid form
+        // Handle bid form
         const bidInput = page.locator('input[name="bidYahoo[price]"]');
         await bidInput.waitFor({ state: 'visible', timeout: 10000 });
         await bidInput.click({ clickCount: 3 });
-        await page.waitForTimeout(randomDelay());
+        await page.waitForTimeout(500 + Math.random() * 500);
         await bidInput.press('Backspace');
         await bidInput.fill(bidAmount.toString());
 
         // Handle plan selection
         try {
+            await page.waitForTimeout(1000 + Math.random() * 1000);
             await page.selectOption('select[name="bidYahoo[plan]"]', '99');
         } catch (error) {
             console.log('Plan selection not available or already selected');
         }
 
-        // Submit bid with verification
-        await page.waitForTimeout(randomDelay());
+        // Submit bid
+        await page.waitForTimeout(1500 + Math.random() * 1000);
         const submitButton = page.locator('#bid_submit');
         if (await submitButton.count()) {
             await submitButton.click();
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(2000 + Math.random() * 1000);
         }
 
         // Save bid details
