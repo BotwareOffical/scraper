@@ -162,7 +162,7 @@ async placeBid(productUrl, bidAmount) {
   }
 
   const browser = await chromium.launch({
-    headless: false, // Keep false for debugging
+    headless: true, // Keep false for debugging
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
