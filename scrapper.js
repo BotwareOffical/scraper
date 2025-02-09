@@ -165,11 +165,11 @@ class BuyeeScraper {
           console.log(`Navigating to URL: ${productUrl}`);
           
           await productPage.goto(productUrl, {
-            waitUntil: 'load',
+            waitUntil: 'domcontentloaded',
             timeout: 45000
           });
   
-          await productPage.waitForTimeout(3000);
+          await productPage.waitForTimeout(1000);
   
           const productDetails = await productPage.evaluate(() => {
             const getElement = (selectors) => {
@@ -243,7 +243,7 @@ class BuyeeScraper {
       await browser.close();
     }
   }
-  
+
 // Add this debugging method to help track what's happening
 async removeFinishedAuctions(finishedUrls) {
   try {
