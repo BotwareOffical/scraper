@@ -243,256 +243,195 @@ class BuyeeScraper {
     }
   }
 
-// Add this debugging method to help track what's happening
-async removeFinishedAuctions(finishedUrls) {
-  try {
-    const bidFilePath = path.resolve(__dirname, "../bids.json");
-    console.log('Attempting to remove finished auctions...');
-    console.log('Finished URLs:', finishedUrls);
-    
-    if (!fs.existsSync(bidFilePath)) {
-      console.log(`Bids file not found at path: ${bidFilePath}`);
-      return;
-    }
-
-    // Read and log current bids
-    const data = fs.readFileSync(bidFilePath, 'utf8');
-    const bidsData = JSON.parse(data);
-    console.log('Current bids before removal:', bidsData.bids.length);
-    
-    // Filter out finished auctions
-    const originalLength = bidsData.bids.length;
-    bidsData.bids = bidsData.bids.filter(bid => {
-      const shouldKeep = !finishedUrls.includes(bid.productUrl);
-      if (!shouldKeep) {
-        console.log(`Removing finished auction: ${bid.productUrl}`);
-      }
-      return shouldKeep;
-    });
-
-    // Log the difference
-    const removedCount = originalLength - bidsData.bids.length;
-    console.log(`Removed ${removedCount} finished auctions`);
-    console.log('Remaining bids:', bidsData.bids.length);
-
-    // Write back to file
-    fs.writeFileSync(bidFilePath, JSON.stringify(bidsData, null, 2));
-    
-    if (removedCount > 0) {
-      console.log('Successfully updated bids.json');
-    } else {
-      console.log('No auctions were removed');
-    }
-    
-  } catch (error) {
-    console.error('Error in removeFinishedAuctions:', error);
-    // Log more details about the error
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    });
-  }
-}
-
-async placeBid(productUrl, bidAmount) {
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const context = await browser.newContext({ storageState: "login.json" });
-
-  try {
-    const page = await context.newPage();
-    
-    console.log('Attempting to navigate to:', productUrl);
-    
-    await page.goto(productUrl, {
-      waitUntil: 'networkidle',
-      timeout: 60000
-    });
-
-    console.log('Page loaded, getting HTML content...');
-    const pageContent = await page.content();
-    console.log('Current page HTML:', pageContent);
-    
-    console.log('Current page URL:', page.url());
-    
-    const cookies = await context.cookies();
-    console.log('Current cookies:', cookies);
-
-    // Wait for page to load
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
-
-    // Enhanced button debugging
-    console.log('Checking for bid button...');
-    
-    // Get all buttons on the page
-    const allButtons = await page.evaluate(() => {
-      const buttons = document.querySelectorAll('button');
-      return Array.from(buttons).map(button => ({
-        id: button.id,
-        className: button.className,
-        text: button.textContent,
-        isVisible: button.offsetParent !== null,
-        attributes: Array.from(button.attributes).map(attr => ({
-          name: attr.name,
-          value: attr.value
-        }))
-      }));
-    });
-    console.log('All buttons found:', allButtons);
-
-    // Specifically look for the bid button
-    const bidButtonInfo = await page.evaluate(() => {
-      const button = document.querySelector('#bidNow');
-      if (button) {
-        return {
-          exists: true,
-          visible: button.offsetParent !== null,
-          html: button.outerHTML,
-          parent: button.parentElement ? button.parentElement.outerHTML : null
-        };
-      }
-      return { exists: false };
-    });
-    console.log('Bid button details:', bidButtonInfo);
-
-    // Check if the "Bid Now" button exists
-    const bidNowButton = page.locator("#bidNow");
-    const bidButtonExists = await bidNowButton.count();
-    
-    if (!bidButtonExists) {
-      console.warn('No "Bid Now" button found on the page');
-      return {
-        success: false,
-        message: 'No "Bid Now" button found on the page',
-      };
-    }
-
-    // Extract product details including time remaining
-    const productDetails = await page.evaluate(() => {
-      const getElementText = (selectors) => {
-        for (const selector of selectors) {
-          const element = document.querySelector(selector);
-          if (element && element.textContent) {
-            return element.textContent.trim();
-          }
-        }
-        return null;
-      };
-
-      const title = getElementText([
-        'h1',
-        '.itemName',
-        '.itemInfo__name'
-      ]) || document.title || 'No Title';
-
-      let thumbnailUrl = null;
-      const thumbnailSelectors = [
-        '.flexslider .slides img',
-        '.flex-control-nav .slides img',
-        '.itemImg img',
-        '.mainImage img',
-        '.g-thumbnail__image',
-        '.itemPhoto img',
-        'img.primary-image'
-      ];
-
-      for (const selector of thumbnailSelectors) {
-        const thumbnailElement = document.querySelector(selector);
-        if (thumbnailElement) {
-          thumbnailUrl = thumbnailElement.src || 
-                        thumbnailElement.getAttribute('data-src') || 
-                        thumbnailElement.getAttribute('data-original');
-          if (thumbnailUrl) {
-            thumbnailUrl = thumbnailUrl.split('?')[0];
-            break;
-          }
-        }
-      }
-
-      const timeRemaining = getElementText([
-        '.itemInformation__infoItem .g-text--attention',
-        '.itemInfo__time span',
-        '.timeLeft',
-        '.g-text--attention',
-        '.itemInformation .g-text'
-      ]) || 'Time Not Available';
-
-      return { title, thumbnailUrl, timeRemaining };
-    });
-
-    // Click the "Bid Now" button and wait for navigation
-    await bidNowButton.click();
-    await page.waitForTimeout(2000);
-
-    // Wait for and fill the bid form
-    const bidInput = page.locator('input[name="bidYahoo[price]"]');
-    await bidInput.waitFor({ state: 'visible', timeout: 10000 });
-    await bidInput.click({ clickCount: 3 }); // Select all text
-    await bidInput.press('Backspace'); // Clear existing text
-    await bidInput.fill(bidAmount.toString());
-
-    // Select the Lite plan if available
+  // Add this debugging method to help track what's happening
+  async removeFinishedAuctions(finishedUrls) {
     try {
-      await page.selectOption('select[name="bidYahoo[plan]"]', '99');
+      const bidFilePath = path.resolve(__dirname, "../bids.json");
+      console.log('Attempting to remove finished auctions...');
+      console.log('Finished URLs:', finishedUrls);
+      
+      if (!fs.existsSync(bidFilePath)) {
+        console.log(`Bids file not found at path: ${bidFilePath}`);
+        return;
+      }
+
+      // Read and log current bids
+      const data = fs.readFileSync(bidFilePath, 'utf8');
+      const bidsData = JSON.parse(data);
+      console.log('Current bids before removal:', bidsData.bids.length);
+      
+      // Filter out finished auctions
+      const originalLength = bidsData.bids.length;
+      bidsData.bids = bidsData.bids.filter(bid => {
+        const shouldKeep = !finishedUrls.includes(bid.productUrl);
+        if (!shouldKeep) {
+          console.log(`Removing finished auction: ${bid.productUrl}`);
+        }
+        return shouldKeep;
+      });
+
+      // Log the difference
+      const removedCount = originalLength - bidsData.bids.length;
+      console.log(`Removed ${removedCount} finished auctions`);
+      console.log('Remaining bids:', bidsData.bids.length);
+
+      // Write back to file
+      fs.writeFileSync(bidFilePath, JSON.stringify(bidsData, null, 2));
+      
+      if (removedCount > 0) {
+        console.log('Successfully updated bids.json');
+      } else {
+        console.log('No auctions were removed');
+      }
+      
     } catch (error) {
-      console.log('Plan selection not available or already selected');
+      console.error('Error in removeFinishedAuctions:', error);
+      // Log more details about the error
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
     }
-
-    // Wait for a moment before submission
-    await page.waitForTimeout(1000);
-
-    // Submit if bid_submit button exists
-    const submitButton = page.locator('#bid_submit');
-    if (await submitButton.count()) {
-      await submitButton.click();
-      await page.waitForTimeout(2000);
-    }
-
-    // Save bid details to JSON file
-    const bidDetails = {
-      productUrl,
-      bidAmount,
-      timestamp: productDetails.timeRemaining,
-      title: productDetails.title,
-      thumbnailUrl: productDetails.thumbnailUrl
-    };
-
-    let bidFileData = { bids: [] };
-
-    if (fs.existsSync(bidFilePath)) {
-      const fileContent = fs.readFileSync(bidFilePath, "utf8");
-      bidFileData = JSON.parse(fileContent);
-    }
-
-    const existingIndex = bidFileData.bids.findIndex(
-      (bid) => bid.productUrl === productUrl
-    );
-
-    if (existingIndex !== -1) {
-      bidFileData.bids[existingIndex] = bidDetails;
-    } else {
-      bidFileData.bids.push(bidDetails);
-    }
-
-    fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
-
-    return {
-      success: true,
-      message: `Bid of ${bidAmount} placed successfully`,
-      details: bidDetails
-    };
-  } catch (error) {
-    console.error("Error during bid placement:", error);
-    throw new Error("Failed to place the bid. Please try again.");
-  } finally {
-    await context.close();
-    await browser.close();
   }
+  async placeBid(productUrl, bidAmount) {
+    const browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const context = await browser.newContext({
+        storageState: "login.json",
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        extraHTTPHeaders: {
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://buyee.jp/',
+            'Origin': 'https://buyee.jp',
+            'DNT': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin'
+        }
+    });
+
+    try {
+        const page = await context.newPage();
+        console.log('Attempting to navigate to:', productUrl);
+        
+        await page.goto(productUrl, {
+            waitUntil: 'networkidle',
+            timeout: 60000
+        });
+
+        // Check for 403 Forbidden
+        const pageContent = await page.content();
+        if (pageContent.includes('403 Forbidden')) {
+            console.warn('Encountered 403 Forbidden! Retrying with delay...');
+            await page.waitForTimeout(5000); // Wait before retrying
+            await page.reload({ waitUntil: 'networkidle' });
+        }
+
+        console.log('Page loaded, checking content...');
+        console.log('Current page URL:', page.url());
+
+        // Mimic human behavior
+        await page.mouse.move(500, 500);
+        await page.waitForTimeout(2000);
+        await page.evaluate(() => window.scrollBy(0, 200));
+
+        console.log('Checking for bid button...');
+        const bidNowButton = page.locator("#bidNow");
+        const bidButtonExists = await bidNowButton.count();
+        
+        if (!bidButtonExists) {
+            console.warn('No "Bid Now" button found on the page');
+            return { success: false, message: 'No "Bid Now" button found on the page' };
+        }
+
+        // Extract product details
+        const productDetails = await page.evaluate(() => {
+            const getElementText = (selectors) => {
+                for (const selector of selectors) {
+                    const element = document.querySelector(selector);
+                    if (element && element.textContent) {
+                        return element.textContent.trim();
+                    }
+                }
+                return null;
+            };
+
+            const title = getElementText(['h1', '.itemName', '.itemInfo__name']) || 'No Title';
+            let thumbnailUrl = null;
+            const imageSelectors = ['.flexslider .slides img', '.mainImage img', '.g-thumbnail__image'];
+            for (const selector of imageSelectors) {
+                const imageElement = document.querySelector(selector);
+                if (imageElement) {
+                    thumbnailUrl = imageElement.src || imageElement.getAttribute('data-src');
+                    break;
+                }
+            }
+            return { title, thumbnailUrl };
+        });
+
+        // Click the "Bid Now" button
+        await bidNowButton.click();
+        await page.waitForTimeout(2000);
+
+        // Fill in the bid form
+        const bidInput = page.locator('input[name="bidYahoo[price]"]');
+        await bidInput.waitFor({ state: 'visible', timeout: 10000 });
+        await bidInput.click({ clickCount: 3 });
+        await bidInput.press('Backspace');
+        await bidInput.fill(bidAmount.toString());
+
+        // Select the Lite plan if available
+        try {
+            await page.selectOption('select[name="bidYahoo[plan]"]', '99');
+        } catch (error) {
+            console.log('Plan selection not available or already selected');
+        }
+
+        // Submit bid
+        await page.waitForTimeout(1000);
+        const submitButton = page.locator('#bid_submit');
+        if (await submitButton.count()) {
+            await submitButton.click();
+            await page.waitForTimeout(2000);
+        }
+
+        // Save bid details
+        const bidDetails = {
+            productUrl,
+            bidAmount,
+            title: productDetails.title,
+            thumbnailUrl: productDetails.thumbnailUrl
+        };
+
+        let bidFileData = { bids: [] };
+        if (fs.existsSync(bidFilePath)) {
+            const fileContent = fs.readFileSync(bidFilePath, "utf8");
+            bidFileData = JSON.parse(fileContent);
+        }
+
+        const existingIndex = bidFileData.bids.findIndex(bid => bid.productUrl === productUrl);
+        if (existingIndex !== -1) {
+            bidFileData.bids[existingIndex] = bidDetails;
+        } else {
+            bidFileData.bids.push(bidDetails);
+        }
+
+        fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
+
+        return { success: true, message: `Bid of ${bidAmount} placed successfully`, details: bidDetails };
+
+    } catch (error) {
+        console.error("Error during bid placement:", error);
+        return { success: false, message: "Failed to place the bid. Please try again." };
+    } finally {
+        await context.close();
+        await browser.close();
+    }
 }
+
   // Update bid prices
   async updateBid(productUrl) {
     const browser = await chromium.launch({ 
