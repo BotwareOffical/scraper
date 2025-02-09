@@ -152,85 +152,129 @@ class BuyeeScraper {
     }
   }
 
-  async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
-    });
-  
-    try {
-      const context = await browser.newContext({
-        storageState: "login.json", // Ensure we use the saved login session
-        viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      });
-  
-      const page = await context.newPage();
-      page.setDefaultTimeout(60000);
-      page.setDefaultNavigationTimeout(60000);
-  
-      // Log cookies for debugging
-      const cookies = await context.cookies();
-      console.log('Cookies before navigating to product page:', cookies);
-  
-      // Navigate to the product page
-      console.log('Navigating to product page:', productUrl);
-      await page.goto(productUrl, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(2000); // Wait for the page to load
-  
-      // Check if we are logged in
-      const currentUrl = page.url();
-      console.log('Current URL after navigation:', currentUrl);
-      if (currentUrl.includes('signup/login')) {
-        throw new Error('Login session expired or not logged in');
-      }
-      const isLoggedIn = await this.checkLoginState();
-      if (!isLoggedIn) {
-        await this.refreshLoginSession(); // Ensure this works correctly
-      }
+// scrapper.js (updated)
+async placeBid(productUrl, bidAmount) {
+  // Check session validity first
+  const isLoggedIn = await this.checkLoginState();
+  if (!isLoggedIn) {
+    console.log('Session expired - refreshing login');
+    await this.refreshLoginSession();
+  }
 
-  
-      // Click the bid button
-      console.log('Looking for bid button...');
-      const bidButton = page.locator('#bidNow');
-      await bidButton.waitFor({ state: 'visible', timeout: 20000 });
-      console.log('Bid button found, clicking...');
-      await bidButton.click();
-      await page.waitForTimeout(5000); // Wait for the bid form to load
-  
-      // Check if we are redirected to the login page
-      const newUrl = page.url();
-      console.log('Current URL after clicking bid button:', newUrl);
-      if (newUrl.includes('signup/login')) {
-        throw new Error('Redirected to login page after clicking bid button');
+  const browser = await chromium.launch({
+    headless: false, // Keep false for debugging
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-web-security'
+    ]
+  });
+
+  try {
+    const context = await browser.newContext({
+      storageState: "login.json",
+      viewport: { width: 1920, height: 1080 }, // Larger viewport
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' // Updated UA
+    });
+
+    // Set critical headers
+    await context.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': productUrl,
+      'Priority': 'u=0, i'
+    });
+
+    const page = await context.newPage();
+    
+    // Debug: Log network activity
+    page.on('response', response => {
+      console.log(`<< ${response.status()} ${response.url()}`);
+      if (response.status() === 302) {
+        console.log('Redirect detected to:', response.headers().location);
       }
-  
-      // Proceed with filling out the bid form
-      console.log('Proceeding with bid...');
-      const bidPage = page;
-      await bidPage.fill('#bidYahoo_price', bidAmount.toString());
-      await bidPage.selectOption('#bidYahoo_plan', '99');
-      await bidPage.check('#bidYahoo_payment_method_type_2');
-      await bidPage.click('#bid_submit');
-      await bidPage.waitForTimeout(3000); // Wait for the bid to be processed
-  
-      console.log('Bid placed successfully!');
-      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
-  
+    });
+
+    console.log('Navigating to:', productUrl);
+    await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
+
+    // Remove potential overlays
+    await page.evaluate(() => {
+      const elements = document.querySelectorAll('.overlay, .cookie-banner');
+      elements.forEach(el => el.remove());
+    });
+
+    // Click bid button with enhanced handling
+    console.log('Clicking bid button...');
+    const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
+    await bidButton.click();
+    
+    // Wait for dynamic content (modal/form)
+    console.log('Waiting for bid form...');
+    try {
+      // First check for modal approach
+      await page.waitForSelector('.modal-body #bidYahoo_price', { 
+        timeout: 10000,
+        state: 'visible' 
+      });
+      console.log('Found modal-based bid form');
+    } catch {
+      // Fallback to direct form detection
+      await page.waitForSelector('#bid_form', { timeout: 10000 });
+      console.log('Found standard bid form');
+    }
+
+    // Visual verification
+    await page.screenshot({ path: 'bid-form-loaded.png' });
+
+    // Fill form with retry logic
+    await this.retry(async () => {
+      await page.fill('#bidYahoo_price', bidAmount.toString());
+      await page.selectOption('#bidYahoo_plan', '99');
+      await page.check('#bidYahoo_payment_method_type_2');
+    }, 3);
+
+    // Submit and verify
+    console.log('Submitting bid...');
+    const [response] = await Promise.all([
+      page.waitForNavigation({ timeout: 30000 }),
+      page.click('#bid_submit')
+    ]);
+
+    // Verify success
+    if (response.url().includes('/bid/confirm')) {
+      console.log('Bid confirmed successfully');
+      return { success: true, message: `Bid of ${bidAmount} placed` };
+    }
+
+    throw new Error('Bid confirmation page not reached');
+
+  } catch (error) {
+    await page.screenshot({ path: 'bid-error.png' });
+    console.error('Bid failure:', error);
+    return { 
+      success: false, 
+      message: `Bid failed: ${error.message}`,
+      debug: {
+        url: page?.url(),
+        cookies: await context?.cookies()
+      }
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
+// Add retry utility
+async retry(fn, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
     } catch (error) {
-      console.error('Bid placement error:', error);
-      return { success: false, message: error.message || 'Failed to place bid' };
-    } finally {
-      if (browser) {
-        await browser.close();
-      }
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
+}
   
   async checkLoginState() {
     try {
