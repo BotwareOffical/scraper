@@ -165,19 +165,19 @@ class BuyeeScraper {
           console.log(`Navigating to URL: ${productUrl}`);
           
           await productPage.goto(productUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000
+            waitUntil: 'load',
+            timeout: 45000
           });
   
-          // Wait for the main image to load
-          await productPage.waitForSelector('.itemPhoto img, .itemImg img', { timeout: 10000 });
+          await productPage.waitForTimeout(3000);
   
-          // Extract product details
           const productDetails = await productPage.evaluate(() => {
             const getElement = (selectors) => {
               for (const selector of selectors) {
                 const element = document.querySelector(selector);
-                if (element) return element.textContent.trim();
+                if (element && element.textContent) {
+                  return element.textContent.trim();
+                }
               }
               return null;
             };
@@ -186,24 +186,33 @@ class BuyeeScraper {
             const price = getElement(['.current_price .price', '.price', '.itemPrice', '.current_price .g-text--attention']) || 'Price Not Available';
             const time_remaining = getElement(['.itemInformation__infoItem .g-text--attention', '.itemInfo__time span', '.timeLeft', '.g-text--attention', '.itemInformation .g-text']) || 'Time Not Available';
   
-            // Image extraction
+            // Image extraction logic from the previous version
             const images = [];
-            const mainImage = document.querySelector('.itemPhoto img, .itemImg img');
-            if (mainImage) {
-              const src = mainImage.src || mainImage.getAttribute('data-src');
-              if (src && !src.includes('loading-spacer.gif')) {
-                images.push(src.split('?')[0]);
-              }
-            }
+            const thumbnailSelectors = [
+              '.flexslider .slides img',
+              '.flex-control-nav .slides img',
+              '.itemImg img',
+              '.mainImage img',
+              '.g-thumbnail__image',
+              '.itemPhoto img',
+              'img.primary-image'
+            ];
   
-            // Try to get additional images
-            const additionalImages = document.querySelectorAll('.flex-control-nav li img');
-            additionalImages.forEach(img => {
-              const src = img.src || img.getAttribute('data-src');
-              if (src && !src.includes('loading-spacer.gif') && !images.includes(src.split('?')[0])) {
-                images.push(src.split('?')[0]);
-              }
-            });
+            for (const selector of thumbnailSelectors) {
+              const thumbnailElements = document.querySelectorAll(selector);
+              thumbnailElements.forEach(element => {
+                const thumbnailUrl = element.src || 
+                                     element.getAttribute('data-src') || 
+                                     element.getAttribute('data-original');
+                if (thumbnailUrl && !thumbnailUrl.includes('loading-spacer.gif')) {
+                  const cleanUrl = thumbnailUrl.split('?')[0];
+                  if (!images.includes(cleanUrl)) {
+                    images.push(cleanUrl);
+                  }
+                }
+              });
+              if (images.length > 0) break;
+            }
   
             return {
               title,
@@ -222,7 +231,7 @@ class BuyeeScraper {
           await productPage.close();
         }
   
-        // Add a small delay between requests to avoid overwhelming the server
+        // Add a small delay between requests
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
   
@@ -234,7 +243,7 @@ class BuyeeScraper {
       await browser.close();
     }
   }
-
+  
 // Add this debugging method to help track what's happening
 async removeFinishedAuctions(finishedUrls) {
   try {
