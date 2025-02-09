@@ -168,7 +168,7 @@ class BuyeeScraper {
             timeout: 25000
           });
   
-          await productPage.waitForTimeout(3000);
+          await productPage.waitForTimeout(1480);
   
           const productDetails = await productPage.evaluate(() => {
             const getElement = (selectors) => {
@@ -534,34 +534,83 @@ async removeFinishedAuctions(finishedUrls) {
         timeout: 30000
       });
   
-      // Fill the form fields
       await page.fill('#login_mailAddress', username);
       await page.waitForTimeout(500);
       await page.fill('#login_password', password);
       await page.waitForTimeout(500);
   
-      // Get the form element
       const form = await page.$('#login_form');
       if (!form) {
         throw new Error('Login form not found');
       }
   
-      // Submit the form using JavaScript click on the login button
       await page.evaluate(() => {
         document.querySelector('#login_submit').click();
       });
   
-      // Wait for navigation
       await page.waitForNavigation({ timeout: 30000 });
   
-      // Save login state immediately
+      // Check if we're redirected to the 2FA page
+      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
+        console.log('Two-factor authentication required');
+        // Save the context for later use
+        await context.storageState({ path: "temp_login.json" });
+        return { success: false, requiresTwoFactor: true };
+      }
+  
+      // If no 2FA required, complete the login process
       await context.storageState({ path: "login.json" });
-      
       return { success: true };
   
     } catch (error) {
       console.error('Login error:', error);
       await page.screenshot({ path: 'login-error.png' });
+      throw error;
+    } finally {
+      await browser.close();
+    }
+  }
+  
+  async submitTwoFactorCode(twoFactorCode) {
+    const browser = await chromium.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const context = await browser.newContext({
+      storageState: "temp_login.json"
+    });
+  
+    const page = await context.newPage();
+    
+    try {
+      await page.goto("https://buyee.jp/signup/twoFactor", {
+        waitUntil: 'networkidle',
+        timeout: 30000
+      });
+  
+      // Fill in the 2FA code
+      for (let i = 0; i < 6; i++) {
+        await page.fill(`#input${i + 1}`, twoFactorCode[i]);
+      }
+  
+      // Submit the form
+      await page.click('button[type="submit"]');
+  
+      await page.waitForNavigation({ timeout: 30000 });
+  
+      // Check if login was successful
+      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
+        throw new Error('Invalid two-factor code');
+      }
+  
+      // Save the final login state
+      await context.storageState({ path: "login.json" });
+      return { success: true };
+  
+    } catch (error) {
+      console.error('Two-factor authentication error:', error);
+      await page.screenshot({ path: 'two-factor-error.png' });
       throw error;
     } finally {
       await browser.close();

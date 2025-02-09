@@ -372,6 +372,32 @@ app.post('/update-bid-prices', async (req, res) => {
   }
 });
 
+app.post('/login-two-factor', async (req, res) => {
+  try {
+    const { twoFactorCode } = req.body;
+
+    if (!twoFactorCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-factor code is required'
+      });
+    }
+
+    const loginResult = await scraper.submitTwoFactorCode(twoFactorCode);
+    res.json({
+      success: true,
+      message: 'Two-factor authentication successful',
+      data: loginResult
+    });
+  } catch (error) {
+    console.error('Two-factor authentication error:', error);
+    res.status(500).json({
+      success: false, 
+      message: error.message || 'Two-factor authentication failed'
+    });
+  }
+});
+
 // Debug middleware - add before routes
 app.use((req, res, next) => {
   console.log('\n=== Request ===');
