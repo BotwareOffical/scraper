@@ -295,9 +295,83 @@ async removeFinishedAuctions(finishedUrls) {
   }
 }
 
-waitForLoadState
+async placeBid(productUrl, bidAmount) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const context = await browser.newContext({ storageState: "login.json" });
 
-    // Extract product details including time remaining inside the evaluate
+  try {
+    const page = await context.newPage();
+    
+    console.log('Attempting to navigate to:', productUrl);
+    
+    await page.goto(productUrl, {
+      waitUntil: 'networkidle',
+      timeout: 60000
+    });
+
+    console.log('Page loaded, getting HTML content...');
+    const pageContent = await page.content();
+    console.log('Current page HTML:', pageContent);
+    
+    console.log('Current page URL:', page.url());
+    
+    const cookies = await context.cookies();
+    console.log('Current cookies:', cookies);
+
+    // Wait for page to load
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+
+    // Enhanced button debugging
+    console.log('Checking for bid button...');
+    
+    // Get all buttons on the page
+    const allButtons = await page.evaluate(() => {
+      const buttons = document.querySelectorAll('button');
+      return Array.from(buttons).map(button => ({
+        id: button.id,
+        className: button.className,
+        text: button.textContent,
+        isVisible: button.offsetParent !== null,
+        attributes: Array.from(button.attributes).map(attr => ({
+          name: attr.name,
+          value: attr.value
+        }))
+      }));
+    });
+    console.log('All buttons found:', allButtons);
+
+    // Specifically look for the bid button
+    const bidButtonInfo = await page.evaluate(() => {
+      const button = document.querySelector('#bidNow');
+      if (button) {
+        return {
+          exists: true,
+          visible: button.offsetParent !== null,
+          html: button.outerHTML,
+          parent: button.parentElement ? button.parentElement.outerHTML : null
+        };
+      }
+      return { exists: false };
+    });
+    console.log('Bid button details:', bidButtonInfo);
+
+    // Check if the "Bid Now" button exists
+    const bidNowButton = page.locator("#bidNow");
+    const bidButtonExists = await bidNowButton.count();
+    
+    if (!bidButtonExists) {
+      console.warn('No "Bid Now" button found on the page');
+      return {
+        success: false,
+        message: 'No "Bid Now" button found on the page',
+      };
+    }
+
+    // Extract product details including time remaining
     const productDetails = await page.evaluate(() => {
       const getElementText = (selectors) => {
         for (const selector of selectors) {
@@ -309,14 +383,12 @@ waitForLoadState
         return null;
       };
 
-      // Title extraction
       const title = getElementText([
         'h1',
         '.itemName',
         '.itemInfo__name'
       ]) || document.title || 'No Title';
 
-      // Thumbnail extraction
       let thumbnailUrl = null;
       const thumbnailSelectors = [
         '.flexslider .slides img',
@@ -341,7 +413,6 @@ waitForLoadState
         }
       }
 
-      // Time remaining extraction
       const timeRemaining = getElementText([
         '.itemInformation__infoItem .g-text--attention',
         '.itemInfo__time span',
@@ -422,7 +493,6 @@ waitForLoadState
     await browser.close();
   }
 }
-
   // Update bid prices
   async updateBid(productUrl) {
     const browser = await chromium.launch({ 
