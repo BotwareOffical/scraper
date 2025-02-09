@@ -152,6 +152,80 @@ class BuyeeScraper {
     }
   }
 
+  async scrapeDetails(urls = []) {
+    const { browser, context } = await this.setupBrowser();
+  
+    try {
+      const detailedProducts = [];
+  
+      for (const productUrl of urls) {
+        const productPage = await context.newPage();
+        
+        try {
+          console.log(`Navigating to URL: ${productUrl}`);
+          
+          await productPage.goto(productUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
+          });
+  
+          // Extract product details
+          const productDetails = await productPage.evaluate(() => {
+            const getElement = (selectors) => {
+              for (const selector of selectors) {
+                const element = document.querySelector(selector);
+                if (element) return element.textContent.trim();
+              }
+              return null;
+            };
+  
+            const title = getElement(['h1', '.itemName', '.itemInfo__name']) || document.title;
+            const price = getElement(['.current_price .price', '.price', '.itemPrice', '.current_price .g-text--attention']) || 'Price Not Available';
+            const time_remaining = getElement(['.itemInformation__infoItem .g-text--attention', '.itemInfo__time span', '.timeLeft', '.g-text--attention', '.itemInformation .g-text']) || 'Time Not Available';
+  
+            const thumbnailSelectors = ['.flexslider .slides img', '.flex-control-nav .slides img', '.itemImg img', '.mainImage img', '.g-thumbnail__image', '.itemPhoto img', 'img.primary-image'];
+            let thumbnailUrl = null;
+            for (const selector of thumbnailSelectors) {
+              const img = document.querySelector(selector);
+              if (img) {
+                thumbnailUrl = img.src || img.getAttribute('data-src') || img.getAttribute('data-original');
+                if (thumbnailUrl) {
+                  thumbnailUrl = thumbnailUrl.split('?')[0];
+                  break;
+                }
+              }
+            }
+  
+            return {
+              title,
+              price,
+              time_remaining,
+              url: window.location.href,
+              images: thumbnailUrl ? [thumbnailUrl] : []
+            };
+          });
+  
+          console.log('Extracted Product Details:', JSON.stringify(productDetails, null, 2));
+          detailedProducts.push(productDetails);
+        } catch (pageError) {
+          console.error(`Error scraping details for ${productUrl}:`, pageError);
+        } finally {
+          await productPage.close();
+        }
+  
+        // Add a small delay between requests to avoid overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+  
+      return detailedProducts;
+    } catch (error) {
+      console.error("Details scraping error:", error.message);
+      return [];
+    } finally {
+      await browser.close();
+    }
+  }
+
 // Add this debugging method to help track what's happening
 async removeFinishedAuctions(finishedUrls) {
   try {
