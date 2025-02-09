@@ -33,222 +33,122 @@ class BuyeeScraper {
   }
 
   // Scrape search results and save to search.json
-  async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = null) {
-    const startTime = Date.now();
-    console.log('=== Starting search process ===');
-    console.log('Search parameters:', { term, minPrice, maxPrice, category });
+  async scrapeSearchResults(term, minPrice = "", maxPrice = "", page = 1) {
+    console.log(`Searching for "${term}" - Page ${page}`);
     
-    let browser = null;
-    let context = null;
-    let pageInstance = null;
+    const { browser, context } = await this.setupBrowser();
     
     try {
-      // More robust browser setup with error handling
-      ({ browser, context } = await this.setupBrowser());
-      console.log('Browser and context set up successfully');
-      
-      // Use a more descriptive temporary file name
-      const searchResultsPath = path.join(__dirname, `search_${Date.now()}_${term.replace(/[^a-z0-9]/gi, '_')}.json`);
-      const writeStream = fs.createWriteStream(searchResultsPath, { flags: 'a' });
-      
-      // Create a single page and reuse it with more conservative timeouts
-      pageInstance = await context.newPage();
-      pageInstance.setDefaultTimeout(300000); // 5 minutes
+      const pageInstance = await context.newPage();
+      pageInstance.setDefaultTimeout(300000);
       pageInstance.setDefaultNavigationTimeout(300000);
       
-      // More robust URL construction with proper encoding
+      // Construct search URL with explicit page parameter
       let searchUrl = `${this.baseUrl}/item/search/query/${encodeURIComponent(term)}`;
-      if (category) searchUrl += `/category/${category}`;
-    
+      
       const params = [];
       if (minPrice) params.push(`aucminprice=${encodeURIComponent(minPrice)}`);
       if (maxPrice) params.push(`aucmaxprice=${encodeURIComponent(maxPrice)}`);
       params.push("translationType=98");
-      if (params.length) searchUrl += `?${params.join("&")}`;
+      params.push(`page=${page}`);
+      
+      searchUrl += `?${params.join("&")}`;
   
-      // More robust navigation with multiple attempts
-      let navigationAttempts = 0;
-      const MAX_NAVIGATION_ATTEMPTS = 3;
-      while (navigationAttempts < MAX_NAVIGATION_ATTEMPTS) {
-        try {
-          await pageInstance.goto(searchUrl, {
-            waitUntil: "networkidle",
-            timeout: 300000,
-          });
-          break;
-        } catch (navError) {
-          navigationAttempts++;
-          console.warn(`Navigation attempt ${navigationAttempts} failed:`, navError);
-          if (navigationAttempts === MAX_NAVIGATION_ATTEMPTS) {
-            throw new Error(`Failed to navigate to search page after ${MAX_NAVIGATION_ATTEMPTS} attempts`);
-          }
-          // Wait a bit before retrying
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    
-      // More robust total products extraction
-      let totalProducts = 0;
-      try {
-        const totalProductsElement = await pageInstance.$('.result-num');
-        const totalProductsText = totalProductsElement 
-          ? await totalProductsElement.innerText() 
-          : '0 / 0';
-        
-        const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
-        totalProducts = totalProductsMatch 
-          ? parseInt(totalProductsMatch[1], 10) 
-          : 0;
-      } catch (extractionError) {
-        console.warn('Could not extract total products:', extractionError);
-      }
-    
-      const productsPerPage = 20; // Buyee's standard
-      
-      // Calculate total pages with more conservative approach
-      const calculatedTotalPages = Math.min(
-        Math.ceil(totalProducts / productsPerPage), 
-        3 // Always limit to 3 pages to prevent overwhelming
-      );
-      totalPages = totalPages || calculatedTotalPages;
-    
-      console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
-    
-      // Write metadata to the first line of the file
-      writeStream.write(JSON.stringify({
-        term,
-        totalProducts,
-        totalPages,
-        timestamp: Date.now(),
-        searchUrl
-      }) + '\n');
-    
-      for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
-        try {
-          // Construct search URL with page number
-          const pageSearchUrl = searchUrl.includes('?') 
-            ? `${searchUrl}&page=${currentPage}`
-            : `${searchUrl}?page=${currentPage}`;
-            
-          await pageInstance.goto(pageSearchUrl, {
-            waitUntil: "networkidle",
-            timeout: 200000,
-          });
-    
-          // More robust item selector approach
-          const itemSelectors = [
-            ".itemCard", 
-            ".g-item-list", 
-            ".p-items", 
-            ".auction-list"
-          ];
-          
-          let foundItems = false;
-          for (const selector of itemSelectors) {
-            try {
-              await pageInstance.waitForSelector(selector, { 
-                timeout: 50000,
-                state: 'attached'
-              });
-              foundItems = true;
-              break;
-            } catch {}
-          }
-    
-          if (!foundItems) {
-            console.log(`No items found on page ${currentPage}`);
-            continue;
-          }
-          
-          const items = await pageInstance.$$(".itemCard");
-          console.log(`Found ${items.length} items on page ${currentPage}`);
-    
-          for (const item of items) {
-            try {
-              const productData = await pageInstance.evaluate((itemEl) => {
-                // More robust element selection
-                const titleElement = itemEl.querySelector(".itemCard__itemName a");
-                const title = titleElement ? titleElement.textContent.trim() : "No Title";
-                
-                let url = titleElement ? titleElement.getAttribute("href") : null;
-                if (!url) return null;
-                
-                // Ensure full URL
-                url = url.startsWith("http") ? url : `https://buyee.jp${url}`;
-    
-                const imgElement = itemEl.querySelector(".g-thumbnail__image");
-                const imgSrc = imgElement 
-                  ? (imgElement.getAttribute("data-src") || 
-                     imgElement.getAttribute("src") || 
-                     imgElement.src)
-                  : null;
-    
-                const priceElement = itemEl.querySelector(".g-price");
-                const price = priceElement ? priceElement.textContent.trim() : "Price Not Available";
-    
-                const timeElements = [
-                  itemEl.querySelector('.itemCard__time'),
-                  itemEl.querySelector('.g-text--attention'),
-                  itemEl.querySelector('.timeLeft')
-                ];
-    
-                const timeRemaining = timeElements.find(el => el && el.textContent)
-                  ?.textContent.trim() || 'Time Not Available';
-    
-                return {
-                  title,
-                  price,
-                  url,
-                  time_remaining: timeRemaining,
-                  images: imgSrc ? [imgSrc.split("?")[0]] : [],
-                };
-              }, item);
-    
-              if (productData) {
-                writeStream.write(JSON.stringify(productData) + '\n');
-              }
-            } catch (itemError) {
-              console.error('Error processing individual item:', itemError);
-            }
-          }
-    
-          // Clear page content to reduce memory usage
-          await pageInstance.evaluate(() => {
-            document.body.innerHTML = '';
-          });
-    
-          // Add a small delay between pages to prevent overwhelming the server
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (pageError) {
-          console.error(`Error processing page ${currentPage}:`, pageError);
-        }
-      }
-    
-      // Close write stream
-      writeStream.end();
-    
-      const duration = (Date.now() - startTime) / 1000;
-      console.log(`=== Search completed successfully in ${duration.toFixed(2)}s ===`);
-      
-      return searchResultsPath;
-    } catch (error) {
-      console.error('=== Search failed ===');
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
+      await pageInstance.goto(searchUrl, {
+        waitUntil: "networkidle",
+        timeout: 300000,
       });
-      
-      return null;
-    } finally {
-      // Ensure cleanup of browser resources
-      try {
-        if (pageInstance) await pageInstance.close();
-        if (context) await context.close();
-        if (browser) await browser.close();
-      } catch (cleanupError) {
-        console.error('Error during browser cleanup:', cleanupError);
+  
+      // Extract total products on first page
+      let totalProducts = 0;
+      if (page === 1) {
+        try {
+          const totalProductsElement = await pageInstance.$('.result-num');
+          const totalProductsText = totalProductsElement 
+            ? await totalProductsElement.innerText() 
+            : '0 / 0';
+          
+          const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
+          totalProducts = totalProductsMatch 
+            ? parseInt(totalProductsMatch[1], 10) 
+            : 0;
+        } catch (extractionError) {
+          console.warn('Could not extract total products:', extractionError);
+        }
       }
+  
+      // Wait for items
+      await pageInstance.waitForSelector(".itemCard", { timeout: 50000 });
+      
+      const items = await pageInstance.$$(".itemCard");
+      const products = [];
+  
+      for (const item of items) {
+        try {
+          const productData = await pageInstance.evaluate((itemEl) => {
+            const titleElement = itemEl.querySelector(".itemCard__itemName a");
+            const title = titleElement ? titleElement.textContent.trim() : "No Title";
+            
+            let url = titleElement ? titleElement.getAttribute("href") : null;
+            if (!url) return null;
+            
+            url = url.startsWith("http") ? url : `https://buyee.jp${url}`;
+  
+            const imgElement = itemEl.querySelector(".g-thumbnail__image");
+            const imgSrc = imgElement 
+              ? (imgElement.getAttribute("data-src") || 
+                 imgElement.getAttribute("src") || 
+                 imgElement.src)
+              : null;
+  
+            const priceElement = itemEl.querySelector(".g-price");
+            const price = priceElement ? priceElement.textContent.trim() : "Price Not Available";
+  
+            const timeElements = [
+              itemEl.querySelector('.itemCard__time'),
+              itemEl.querySelector('.g-text--attention'),
+              itemEl.querySelector('.timeLeft')
+            ];
+  
+            const timeRemaining = timeElements.find(el => el && el.textContent)
+              ?.textContent.trim() || 'Time Not Available';
+  
+            return {
+              title,
+              price,
+              url,
+              time_remaining: timeRemaining,
+              images: imgSrc ? [imgSrc.split("?")[0]] : [],
+            };
+          }, item);
+  
+          if (productData) {
+            products.push(productData);
+          }
+        } catch (itemError) {
+          console.error('Error processing individual item:', itemError);
+        }
+      }
+  
+      await pageInstance.close();
+      await browser.close();
+  
+      return {
+        products,
+        totalProducts: totalProducts || products.length,
+        currentPage: page
+      };
+    } catch (error) {
+      console.error('Search failed:', error);
+      
+      // Ensure browser is closed
+      if (browser) await browser.close();
+      
+      return {
+        products: [],
+        totalProducts: 0,
+        currentPage: page
+      };
     }
   }
 

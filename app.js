@@ -96,14 +96,11 @@ app.post('/place-bid', async (req, res) => {
   }
 });
 
-app.post('/search', async (req, res, next) => {
+app.post('/search', async (req, res) => {
   const startTime = Date.now();
   const searchId = Math.random().toString(36).substring(7);
 
   try {
-    console.log(`[${searchId}] === Starting Search Request ===`);
-    console.log(`[${searchId}] Request data:`, JSON.stringify(req.body, null, 2));
-    
     const { 
       terms: searchTerms = [], 
       page = 1, 
@@ -117,106 +114,120 @@ app.post('/search', async (req, res, next) => {
       });
     }
 
-    console.log(`[${searchId}] Processing ${searchTerms.length} search terms`);
+    // Create search context file
+    const searchContextPath = path.join(__dirname, `search_context_${searchId}.json`);
     
-    const results = [];
-    const errors = [];
+    // Initialize search context
+    const searchContext = {
+      searchId,
+      terms: searchTerms,
+      currentTermIndex: 0,
+      currentPage: 1,
+      results: [],
+      totalResults: 0
+    };
 
-    // Process searches concurrently with a limit
-    const searchPromises = searchTerms.map(async (searchTerm) => {
-      try {
-        const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
-        console.log(`[${searchId}] Starting search for "${term}"`);
-        
-        const searchResultFile = await scraper.scrapeSearchResults(
-          term, 
-          minPrice, 
-          maxPrice, 
-          '23000', 
-          3 // Limit to 3 pages
-        );
+    // Process first search term
+    const firstTerm = searchTerms[0];
+    const searchResult = await scraper.scrapeSearchResults(
+      firstTerm.term, 
+      firstTerm.minPrice, 
+      firstTerm.maxPrice, 
+      1
+    );
 
-        if (searchResultFile) {
-          // Read file line by line
-          const fileContents = fs.readFileSync(searchResultFile, 'utf8');
-          const lines = fileContents.split('\n').filter(line => line.trim() !== '');
-          
-          // First line is metadata
-          let searchMetadata = null;
-          const termResults = [];
+    // Update search context
+    searchContext.results = searchResult.products;
+    searchContext.totalResults = searchResult.totalProducts;
 
-          if (lines.length > 0) {
-            searchMetadata = JSON.parse(lines[0]);
-            
-            // Parse product lines
-            for (let i = 1; i < lines.length; i++) {
-              try {
-                const product = JSON.parse(lines[i]);
-                termResults.push(product);
-              } catch (parseError) {
-                console.error('Error parsing product line:', parseError);
-              }
-            }
-          }
-
-          // Delete the temporary file
-          fs.unlinkSync(searchResultFile);
-
-          return {
-            term,
-            results: termResults,
-            metadata: searchMetadata
-          };
-        }
-        return null;
-      } catch (error) {
-        console.error(`Error searching term "${searchTerm.term}":`, error);
-        errors.push({
-          term: searchTerm.term,
-          error: error.message
-        });
-        return null;
-      }
-    });
-
-    // Run searches with a concurrency limit and timeout
-    const searchResults = await Promise.allSettled(searchPromises);
-
-    // Collect successful results
-    searchResults.forEach(result => {
-      if (result.status === 'fulfilled' && result.value) {
-        results.push(...result.value.results);
-      }
-    });
-
-    // Pagination logic
-    const totalResults = results.length;
-    const startIndex = (page - 1) * pageSize;
-    const paginatedResults = results.slice(startIndex, startIndex + pageSize);
+    // Save search context
+    fs.writeFileSync(searchContextPath, JSON.stringify(searchContext, null, 2));
 
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
 
     res.json({
       success: true,
-      results: paginatedResults,
-      count: paginatedResults.length,
-      totalResults,
-      currentPage: page,
-      totalPages: Math.ceil(totalResults / pageSize),
-      duration: totalDuration,
-      searchedTerms: searchTerms.length,
-      errors: errors.length > 0 ? errors : undefined,
-      isPartialResult: errors.length > 0
+      results: searchResult.products,
+      count: searchResult.products.length,
+      totalResults: searchResult.totalProducts,
+      currentPage: 1,
+      searchContextId: searchId,
+      duration: totalDuration
     });
   } catch (error) {
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.error(`[${searchId}] Fatal error after ${duration}s:`, error);
+    console.error('Search error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      duration: duration,
-      message: 'Search failed. Please try with fewer terms or try again later.'
+      error: error.message
+    });
+  }
+});
+
+// New endpoint to load more results
+app.post('/load-more', async (req, res) => {
+  const { searchContextId, pageSize = 100 } = req.body;
+
+  try {
+    // Load search context
+    const searchContextPath = path.join(__dirname, `search_context_${searchContextId}.json`);
+    const searchContext = JSON.parse(fs.readFileSync(searchContextPath, 'utf8'));
+
+    // Determine next page/term
+    let currentTermIndex = searchContext.currentTermIndex;
+    let currentPage = searchContext.currentPage + 1;
+
+    // Get current search term
+    const currentTerm = searchContext.terms[currentTermIndex];
+
+    // Perform search for next page
+    const searchResult = await scraper.scrapeSearchResults(
+      currentTerm.term, 
+      currentTerm.minPrice, 
+      currentTerm.maxPrice, 
+      currentPage
+    );
+
+    // If no results, move to next term
+    if (searchResult.products.length === 0) {
+      currentTermIndex++;
+      currentPage = 1;
+
+      // Check if we have more terms
+      if (currentTermIndex < searchContext.terms.length) {
+        const nextTerm = searchContext.terms[currentTermIndex];
+        const nextSearchResult = await scraper.scrapeSearchResults(
+          nextTerm.term, 
+          nextTerm.minPrice, 
+          nextTerm.maxPrice, 
+          1
+        );
+
+        searchResult.products = nextSearchResult.products;
+      }
+    }
+
+    // Update search context
+    searchContext.results.push(...searchResult.products);
+    searchContext.currentTermIndex = currentTermIndex;
+    searchContext.currentPage = currentPage;
+
+    // Save updated context
+    fs.writeFileSync(searchContextPath, JSON.stringify(searchContext, null, 2));
+
+    res.json({
+      success: true,
+      results: searchResult.products,
+      count: searchResult.products.length,
+      totalResults: searchContext.totalResults,
+      currentTerm: searchContext.terms[currentTermIndex].term,
+      currentPage: currentPage,
+      searchContextId
+    });
+  } catch (error) {
+    console.error('Load more error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
