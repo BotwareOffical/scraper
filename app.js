@@ -291,18 +291,14 @@ app.get('/bids', (req, res) => {
   }
 });
 
-// Add this at the top of app.js after other imports
-const path = require('path');
-
-// Update the login endpoint
 app.post('/login', async (req, res) => {
   try {
     console.log('=== Login Request ===');
     console.log('Request URL:', req.url);
     console.log('Origin:', req.headers.origin);
-    console.log('Login attempt with:', {
-      username: req.body.username ? '✓ Present' : '✗ Missing',
-      password: req.body.password ? '✓ Present' : '✗ Missing'
+    console.log('Login data:', {
+      hasUsername: !!req.body.username,
+      hasPassword: !!req.body.password
     });
 
     const { username, password } = req.body;
@@ -314,24 +310,7 @@ app.post('/login', async (req, res) => {
       });
     }
 
-    // Call the scraper's login method
     const loginResult = await scraper.login(username, password);
-    console.log('Login result:', loginResult);
-
-    if (loginResult.success) {
-      // Read and verify the login.json file was created
-      try {
-        const loginData = fs.readFileSync(path.join(__dirname, 'login.json'), 'utf8');
-        console.log('Login data saved:', {
-          size: loginData.length,
-          hasCookies: loginData.includes('cookies'),
-          hasOtherbuyee: loginData.includes('otherbuyee')
-        });
-      } catch (readError) {
-        console.error('Error reading login.json:', readError);
-      }
-    }
-
     res.json({
       success: true,
       message: 'Login successful',
