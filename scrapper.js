@@ -179,54 +179,48 @@ class BuyeeScraper {
         await page.goto(productUrl, { waitUntil: 'networkidle' });
         await page.waitForTimeout(2000);
 
-        // Check if we're logged in and on the right page
+        // Check if we're logged in
         const currentUrl = page.url();
         console.log('Current URL:', currentUrl);
-
-        // If redirected to login, we need to handle that
         if (currentUrl.includes('signup/login')) {
-            console.log('Redirected to login page - session invalid');
             throw new Error('Login session expired');
         }
 
-        // Find and click bid button
+        // Click the bid button
         console.log('Looking for bid button...');
         const bidButton = page.locator('#bidNow');
         await bidButton.waitFor({ state: 'visible', timeout: 20000 });
-        
-        // Click and wait for form in popup/new page
         console.log('Clicking bid button...');
-        await page.waitForTimeout(3000); // Wait for any possible navigation
-        console.log('After clicking bid, new URL:', currentUrl);
         
-
-        // Determine which page to use (popup or navigated)
-        const bidPage = newPage || page;
-        await bidPage.waitForLoadState('networkidle');
+        // Click bid button and check what happens
+        await bidButton.click();
+        await page.waitForTimeout(3000); // Allow time for navigation or popup
         
-        console.log('After click URL:', bidPage.url());
+        let bidPage = page; // Assume same page
 
-        // Check if we got redirected to login
-        if (bidPage.url().includes('signup/login')) {
-            console.log('Redirected to login after bid click');
-            throw new Error('Login required for bidding');
-        }
-
-        // Wait specifically for the bid form section to load
-        console.log('Waiting for bid form to load...');
-        await bidPage.waitForSelector('.bidInput__main', { timeout: 60000 });
-
-        // Verify we have the bid form
-        const formExists = await bidPage.locator('#bid_form').count() > 0;
-        console.log('Bid form exists:', formExists);
+        // Check if the form appears on the same page
+        let formExists = await page.locator('#bid_form').count();
+        console.log('Bid form on same page?', formExists);
 
         if (!formExists) {
-            const content = await bidPage.content();
-            console.log('Page content preview:', content.substring(0, 500));
-            throw new Error('Bid form not found on page');
+            // If no bid form found, check if a new tab opened
+            const pages = context.pages();
+            console.log('Number of open tabs:', pages.length);
+
+            if (pages.length > 1) {
+                bidPage = pages[pages.length - 1]; // Use new tab
+                await bidPage.bringToFront();
+                await bidPage.waitForLoadState('networkidle');
+            } else {
+                throw new Error('Bid form did not open on the same page or in a new tab');
+            }
         }
 
-        // Now fill the form
+        // Log the bid form structure
+        const bidFormHtml = await bidPage.content();
+        console.log('Bid form HTML preview:', bidFormHtml.substring(0, 1000));
+
+        // Fill the bid form
         console.log('Filling bid amount:', bidAmount);
         await bidPage.fill('#bidYahoo_price', bidAmount.toString());
         await bidPage.waitForTimeout(1000);
@@ -244,11 +238,9 @@ class BuyeeScraper {
         // Submit the bid
         console.log('Submitting bid...');
         await bidPage.click('#bid_submit');
-
-        // Wait for confirmation
         await bidPage.waitForTimeout(3000);
 
-        // Check for any error messages
+        // Check for errors
         const errorMessage = await bidPage.evaluate(() => {
             const errorEl = document.querySelector('.error-message, .alert-error, .inner_alert');
             return errorEl ? errorEl.textContent : null;
