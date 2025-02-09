@@ -296,97 +296,140 @@ class BuyeeScraper {
   }
 
   async placeBid(productUrl, bidAmount) {
-    // Match the successful browser configuration from scrapeSearchResults
     const browser = await chromium.launch({
         headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--window-size=1920,1080',
-            '--disable-features=IsolateOrigins',
-            '--disable-site-isolation-trials',
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-dev-shm-usage'
+            '--no-zygote',
+            '--no-xshm',
+            '--window-size=1920,1080',
+            '--start-maximized',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins',
+            '--disable-site-isolation-trials'
         ]
     });
 
-    // Enhanced context settings matching successful patterns
+    // More sophisticated context settings
     const context = await browser.newContext({
         storageState: "login.json",
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         extraHTTPHeaders: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
             'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Linux"',
-            'Upgrade-Insecure-Requests': '1',
-            'DNT': '1'
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1'
         }
     });
 
     try {
         const page = await context.newPage();
+        
+        // Set longer timeouts
         page.setDefaultTimeout(300000);
         page.setDefaultNavigationTimeout(300000);
 
-        // Add page-specific headers
-        await page.setExtraHTTPHeaders({
-            'Referer': 'https://buyee.jp/',
-            'Origin': 'https://buyee.jp'
+        // Inject scripts to mask automation
+        await page.addInitScript(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en', 'ja'] });
         });
 
-        // Initial delay before navigation
-        await page.waitForTimeout(2000 + Math.random() * 1000);
+        // Log the current cookies
+        console.log('Current cookies:', await context.cookies());
+
+        // Add stealth headers
+        await page.setExtraHTTPHeaders({
+            'Referer': 'https://buyee.jp/item/search/category/2084005359',
+            'Origin': 'https://buyee.jp',
+            'DNT': '1'
+        });
 
         console.log('Attempting to navigate to:', productUrl);
 
-        // Enhanced retry mechanism with session refresh
         let retryCount = 0;
         const maxRetries = 5;
         let pageLoaded = false;
 
         while (!pageLoaded && retryCount < maxRetries) {
             try {
-                // Clear previous session data on retry
+                // Clear session data on retry
                 if (retryCount > 0) {
+                    console.log(`Retry attempt ${retryCount + 1}`);
                     await context.clearCookies();
                     await page.reload({ waitUntil: 'networkidle0' });
                     await page.waitForTimeout(5000 + Math.random() * 3000);
                 }
 
                 // Navigate with more reliable wait conditions
-                await page.goto(productUrl, {
-                    waitUntil: 'domcontentloaded',
+                const response = await page.goto(productUrl, {
+                    waitUntil: 'networkidle',
                     timeout: 60000
                 });
 
-                // Wait for any dynamic content
-                await page.waitForTimeout(2000 + Math.random() * 2000);
+                // Log response status and headers
+                console.log('Response status:', response.status());
+                console.log('Response headers:', response.headers());
 
-                // Check for 403 error
+                // Get and log the page content
                 const pageContent = await page.content();
+                console.log('Page HTML content:', pageContent);
+
+                // Check for various error conditions
                 if (pageContent.includes('403 Forbidden')) {
-                    console.warn(`Attempt ${retryCount + 1}: Encountered 403 Forbidden, retrying...`);
+                    console.warn(`Attempt ${retryCount + 1}: Encountered 403 Forbidden`);
+                    
+                    // Log additional debugging information
+                    console.log('Current URL:', page.url());
+                    console.log('Page title:', await page.title());
+                    
                     retryCount++;
                     
-                    // Additional delay between retries
-                    await page.waitForTimeout(8000 + Math.random() * 4000);
+                    // Try different approach on retry
+                    if (retryCount % 2 === 0) {
+                        // Approach 1: Clear cookies and cache
+                        await context.clearCookies();
+                        await page.waitForTimeout(10000 + Math.random() * 5000);
+                    } else {
+                        // Approach 2: Reload with cache disabled
+                        await page.reload({ 
+                            waitUntil: 'networkidle',
+                            timeout: 60000 
+                        });
+                        await page.waitForTimeout(8000 + Math.random() * 4000);
+                    }
                     continue;
                 }
 
-                // Verify page loaded successfully
+                // Additional checks for page load success
                 const pageTitle = await page.title();
                 if (!pageTitle.includes('403') && !pageContent.includes('403 Forbidden')) {
                     pageLoaded = true;
                     console.log('Page loaded successfully');
+                    console.log('Page title:', pageTitle);
                 }
+
+                // Log successful page load details
+                console.log('Current page URL:', page.url());
+                console.log('Page loaded with title:', await page.title());
+
             } catch (error) {
-                console.warn(`Attempt ${retryCount + 1} failed:`, error.message);
+                console.warn(`Navigation attempt ${retryCount + 1} failed:`, error.message);
                 retryCount++;
                 await page.waitForTimeout(5000 + Math.random() * 3000);
             }
@@ -396,27 +439,39 @@ class BuyeeScraper {
             throw new Error('Failed to load page after maximum retries');
         }
 
-        // Simulate human-like behavior
-        await page.mouse.move(300 + Math.random() * 400, 200 + Math.random() * 300);
-        await page.waitForTimeout(1000 + Math.random() * 1000);
-
-        // Natural scrolling
+        // More human-like behavior simulation
         await page.evaluate(() => {
+            // Random mouse movements
+            const moveCount = Math.floor(Math.random() * 5) + 3;
+            for (let i = 0; i < moveCount; i++) {
+                const x = Math.random() * window.innerWidth;
+                const y = Math.random() * window.innerHeight;
+                const event = new MouseEvent('mousemove', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y
+                });
+                document.dispatchEvent(event);
+            }
+
+            // Random scrolling
             return new Promise((resolve) => {
-                let scrollTop = 0;
-                const maxScroll = Math.random() * 500;
-                const interval = setInterval(() => {
-                    window.scrollBy(0, 10);
-                    scrollTop += 10;
-                    if (scrollTop >= maxScroll) {
-                        clearInterval(interval);
+                let scrolls = 0;
+                const maxScrolls = Math.floor(Math.random() * 4) + 2;
+                const scrollInterval = setInterval(() => {
+                    window.scrollBy(0, (Math.random() * 100) - 50);
+                    scrolls++;
+                    if (scrolls >= maxScrolls) {
+                        clearInterval(scrollInterval);
                         resolve();
                     }
-                }, 100);
+                }, 500);
             });
         });
 
-        await page.waitForTimeout(2000 + Math.random() * 1000);
+        await page.waitForTimeout(2000 + Math.random() * 2000);
 
         // Verify bid button exists
         console.log('Checking for bid button...');
@@ -425,6 +480,7 @@ class BuyeeScraper {
         
         if (!bidButtonExists) {
             console.warn('No "Bid Now" button found on the page');
+            console.log('Current page HTML:', await page.content());
             return { success: false, message: 'No "Bid Now" button found on the page' };
         }
 
