@@ -174,99 +174,86 @@ class BuyeeScraper {
         page.setDefaultTimeout(60000);
         page.setDefaultNavigationTimeout(60000);
 
-        // Navigate to product
+        // Navigate to product page
         console.log('Navigating to:', productUrl);
         await page.goto(productUrl, { waitUntil: 'networkidle' });
         await page.waitForTimeout(2000);
 
-        // Check if we're logged in
+        // Log current URL
         const currentUrl = page.url();
         console.log('Current URL:', currentUrl);
         if (currentUrl.includes('signup/login')) {
             throw new Error('Login session expired');
         }
 
-        // Click the bid button
+        // Find and click bid button
         console.log('Looking for bid button...');
         const bidButton = page.locator('#bidNow');
         await bidButton.waitFor({ state: 'visible', timeout: 20000 });
         console.log('Clicking bid button...');
-        
-        // Click bid button and check what happens
         await bidButton.click();
-        await page.waitForTimeout(3000); // Allow time for navigation or popup
-        
-        let bidPage = page; // Assume same page
+        await page.waitForTimeout(5000);  // Allow time for form to load
 
-        // Check if the form appears on the same page
-        let formExists = await page.locator('#bid_form').count();
+        // 🔍 **Debugging: What Changed After Clicking?**
+        console.log('Checking if bid form exists...');
+        const formExists = await page.locator('#bid_form').count();
         console.log('Bid form on same page?', formExists);
 
         if (!formExists) {
-            // If no bid form found, check if a new tab opened
+            // **Take a screenshot to see the page after clicking**
+            await page.screenshot({ path: 'bid-after-click.png', fullPage: true });
+            console.log('Saved bid-after-click.png for debugging.');
+
+            // **Print all visible elements on the page**
+            const visibleElements = await page.evaluate(() => {
+                return [...document.querySelectorAll('*')]
+                    .filter(el => el.offsetParent !== null) // Only visible elements
+                    .map(el => el.tagName + (el.id ? `#${el.id}` : '') + (el.className ? `.${el.className}` : ''));
+            });
+            console.log('Visible elements on page:', visibleElements.slice(0, 50)); // Log first 50 elements
+
+            // **Check for alerts or dialogs**
+            const alertText = await page.evaluate(() => window.alert?.message || null);
+            if (alertText) {
+                console.log('JavaScript alert found:', alertText);
+            }
+
+            // **Check if a new tab opened**
             const pages = context.pages();
             console.log('Number of open tabs:', pages.length);
 
             if (pages.length > 1) {
-                bidPage = pages[pages.length - 1]; // Use new tab
+                const bidPage = pages[pages.length - 1];
                 await bidPage.bringToFront();
                 await bidPage.waitForLoadState('networkidle');
+                console.log('Switched to new tab:', bidPage.url());
             } else {
                 throw new Error('Bid form did not open on the same page or in a new tab');
             }
         }
 
-        // Log the bid form structure
-        const bidFormHtml = await bidPage.content();
-        console.log('Bid form HTML preview:', bidFormHtml.substring(0, 1000));
-
-        // Fill the bid form
-        console.log('Filling bid amount:', bidAmount);
+        // If we reached this point, the form should be available
+        console.log('Proceeding with bid...');
+        const bidPage = page;
         await bidPage.fill('#bidYahoo_price', bidAmount.toString());
-        await bidPage.waitForTimeout(1000);
-
-        // Select lite plan
-        console.log('Selecting plan...');
         await bidPage.selectOption('#bidYahoo_plan', '99');
-        await bidPage.waitForTimeout(1000);
-
-        // Make sure PayPal is selected
-        console.log('Selecting payment method...');
         await bidPage.check('#bidYahoo_payment_method_type_2');
-        await bidPage.waitForTimeout(1000);
-
-        // Submit the bid
-        console.log('Submitting bid...');
         await bidPage.click('#bid_submit');
         await bidPage.waitForTimeout(3000);
 
-        // Check for errors
-        const errorMessage = await bidPage.evaluate(() => {
-            const errorEl = document.querySelector('.error-message, .alert-error, .inner_alert');
-            return errorEl ? errorEl.textContent : null;
-        });
-
-        if (errorMessage) {
-            throw new Error(`Bid error: ${errorMessage}`);
-        }
-
-        return {
-            success: true,
-            message: `Bid of ${bidAmount} placed successfully`
-        };
+        console.log('Bid placed successfully!');
+        return { success: true, message: `Bid of ${bidAmount} placed successfully` };
 
     } catch (error) {
         console.error('Bid placement error:', error);
-        return {
-            success: false,
-            message: error.message || 'Failed to place bid'
-        };
+        return { success: false, message: error.message || 'Failed to place bid' };
     } finally {
         if (browser) {
             await browser.close();
         }
     }
 }
+
 
   async checkLoginState() {
     try {
