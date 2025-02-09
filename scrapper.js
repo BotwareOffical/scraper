@@ -34,140 +34,179 @@ class BuyeeScraper {
 
   // Scrape search results and save to search.json
   async scrapeSearchResults(term, minPrice = "", maxPrice = "", category = "23000", totalPages = null) {
+    const startTime = Date.now();
     console.log('=== Starting search process ===');
     console.log('Search parameters:', { term, minPrice, maxPrice, category });
     
-    const { browser, context } = await this.setupBrowser();
-    console.log('Browser and context set up successfully');
+    let browser = null;
+    let context = null;
+    let pageInstance = null;
     
     try {
-      // Use a temporary file to store results instead of keeping everything in memory
-      const searchResultsPath = path.join(__dirname, `search_${Date.now()}.json`);
+      // More robust browser setup with error handling
+      ({ browser, context } = await this.setupBrowser());
+      console.log('Browser and context set up successfully');
+      
+      // Use a more descriptive temporary file name
+      const searchResultsPath = path.join(__dirname, `search_${Date.now()}_${term.replace(/[^a-z0-9]/gi, '_')}.json`);
       const writeStream = fs.createWriteStream(searchResultsPath, { flags: 'a' });
       
-      // Create a single page and reuse it
-      const pageInstance = await context.newPage();
-      pageInstance.setDefaultTimeout(2000000);
-      pageInstance.setDefaultNavigationTimeout(2000000);
+      // Create a single page and reuse it with more conservative timeouts
+      pageInstance = await context.newPage();
+      pageInstance.setDefaultTimeout(300000); // 5 minutes
+      pageInstance.setDefaultNavigationTimeout(300000);
       
-      // Construct initial search URL
-      let searchUrl = `${this.baseUrl}/item/search/query/${term}`;
+      // More robust URL construction with proper encoding
+      let searchUrl = `${this.baseUrl}/item/search/query/${encodeURIComponent(term)}`;
       if (category) searchUrl += `/category/${category}`;
-  
+    
       const params = [];
-      if (minPrice) params.push(`aucminprice=${minPrice}`);
-      if (maxPrice) params.push(`aucmaxprice=${maxPrice}`);
+      if (minPrice) params.push(`aucminprice=${encodeURIComponent(minPrice)}`);
+      if (maxPrice) params.push(`aucmaxprice=${encodeURIComponent(maxPrice)}`);
       params.push("translationType=98");
       if (params.length) searchUrl += `?${params.join("&")}`;
   
-      await pageInstance.goto(searchUrl);
-  
-      // Extract total number of products
-      const totalProductsElement = await pageInstance.$('.result-num');
-      const totalProductsText = totalProductsElement 
-        ? await totalProductsElement.innerText() 
-        : '0 / 0';
-      
-      // Extract total from text like "1 - 20 / 77412 Treffer"
-      const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
-      const totalProducts = totalProductsMatch 
-        ? parseInt(totalProductsMatch[1], 10) 
-        : 0;
-  
+      // More robust navigation with multiple attempts
+      let navigationAttempts = 0;
+      const MAX_NAVIGATION_ATTEMPTS = 3;
+      while (navigationAttempts < MAX_NAVIGATION_ATTEMPTS) {
+        try {
+          await pageInstance.goto(searchUrl, {
+            waitUntil: "networkidle",
+            timeout: 300000,
+          });
+          break;
+        } catch (navError) {
+          navigationAttempts++;
+          console.warn(`Navigation attempt ${navigationAttempts} failed:`, navError);
+          if (navigationAttempts === MAX_NAVIGATION_ATTEMPTS) {
+            throw new Error(`Failed to navigate to search page after ${MAX_NAVIGATION_ATTEMPTS} attempts`);
+          }
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+    
+      // More robust total products extraction
+      let totalProducts = 0;
+      try {
+        const totalProductsElement = await pageInstance.$('.result-num');
+        const totalProductsText = totalProductsElement 
+          ? await totalProductsElement.innerText() 
+          : '0 / 0';
+        
+        const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
+        totalProducts = totalProductsMatch 
+          ? parseInt(totalProductsMatch[1], 10) 
+          : 0;
+      } catch (extractionError) {
+        console.warn('Could not extract total products:', extractionError);
+      }
+    
       const productsPerPage = 20; // Buyee's standard
       
-      // Calculate total pages
+      // Calculate total pages with more conservative approach
       const calculatedTotalPages = Math.min(
         Math.ceil(totalProducts / productsPerPage), 
-        totalProducts < productsPerPage ? 1 : 3 // Limit to 3 pages instead of 10
+        3 // Always limit to 3 pages to prevent overwhelming
       );
       totalPages = totalPages || calculatedTotalPages;
-  
+    
       console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
-  
+    
       // Write metadata to the first line of the file
       writeStream.write(JSON.stringify({
         term,
         totalProducts,
         totalPages,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        searchUrl
       }) + '\n');
-  
+    
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
-        // Construct search URL with page number
-        const pageSearchUrl = searchUrl.includes('?') 
-          ? `${searchUrl}&page=${currentPage}`
-          : `${searchUrl}?page=${currentPage}`;
-          
-        await pageInstance.goto(pageSearchUrl, {
-          waitUntil: "networkidle",
-          timeout: 200000,
-        });
-  
         try {
-          await pageInstance.waitForSelector(".itemCard, .g-item-list, .p-items", { 
+          // Construct search URL with page number
+          const pageSearchUrl = searchUrl.includes('?') 
+            ? `${searchUrl}&page=${currentPage}`
+            : `${searchUrl}?page=${currentPage}`;
+            
+          await pageInstance.goto(pageSearchUrl, {
+            waitUntil: "networkidle",
             timeout: 200000,
-            state: 'attached'
           });
+    
+          // More robust item selector approach
+          const itemSelectors = [
+            ".itemCard", 
+            ".g-item-list", 
+            ".p-items", 
+            ".auction-list"
+          ];
+          
+          let foundItems = false;
+          for (const selector of itemSelectors) {
+            try {
+              await pageInstance.waitForSelector(selector, { 
+                timeout: 50000,
+                state: 'attached'
+              });
+              foundItems = true;
+              break;
+            } catch {}
+          }
+    
+          if (!foundItems) {
+            console.log(`No items found on page ${currentPage}`);
+            continue;
+          }
           
           const items = await pageInstance.$$(".itemCard");
-
+          console.log(`Found ${items.length} items on page ${currentPage}`);
+    
           for (const item of items) {
             try {
-              const titleElement = await item.$(".itemCard__itemName a");
-              const title = titleElement
-                ? await titleElement.innerText()
-                : "No Title";
-              
-              let url = titleElement
-                ? await titleElement.getAttribute("href")
-                : null;
-              
-              if (!url) {
-                console.log('Skipping item - no URL found');
-                continue;
+              const productData = await pageInstance.evaluate((itemEl) => {
+                // More robust element selection
+                const titleElement = itemEl.querySelector(".itemCard__itemName a");
+                const title = titleElement ? titleElement.textContent.trim() : "No Title";
+                
+                let url = titleElement ? titleElement.getAttribute("href") : null;
+                if (!url) return null;
+                
+                // Ensure full URL
+                url = url.startsWith("http") ? url : `https://buyee.jp${url}`;
+    
+                const imgElement = itemEl.querySelector(".g-thumbnail__image");
+                const imgSrc = imgElement 
+                  ? (imgElement.getAttribute("data-src") || 
+                     imgElement.getAttribute("src") || 
+                     imgElement.src)
+                  : null;
+    
+                const priceElement = itemEl.querySelector(".g-price");
+                const price = priceElement ? priceElement.textContent.trim() : "Price Not Available";
+    
+                const timeElements = [
+                  itemEl.querySelector('.itemCard__time'),
+                  itemEl.querySelector('.g-text--attention'),
+                  itemEl.querySelector('.timeLeft')
+                ];
+    
+                const timeRemaining = timeElements.find(el => el && el.textContent)
+                  ?.textContent.trim() || 'Time Not Available';
+    
+                return {
+                  title,
+                  price,
+                  url,
+                  time_remaining: timeRemaining,
+                  images: imgSrc ? [imgSrc.split("?")[0]] : [],
+                };
+              }, item);
+    
+              if (productData) {
+                writeStream.write(JSON.stringify(productData) + '\n');
               }
-              
-              if (!url.startsWith("http")) url = `${this.baseUrl}${url}`;
-  
-              const imgElement = await item.$(".g-thumbnail__image");
-              const imgSrc = imgElement
-                ? (await imgElement.getAttribute("data-src")) ||
-                  (await imgElement.getAttribute("src"))
-                : null;
-  
-              const priceElement = await item.$(".g-price");
-              const price = priceElement
-                ? await priceElement.innerText()
-                : "Price Not Available";
-  
-              // Extract time remaining - multiple selector approach
-              let timeRemaining = 'Time Not Available';
-              const timeElements = [
-                await item.$('.itemCard__time'),
-                await item.$('.g-text--attention'),
-                await item.$('.timeLeft')
-              ];
-  
-              for (const timeEl of timeElements) {
-                if (timeEl) {
-                  try {
-                    timeRemaining = await timeEl.innerText();
-                    if (timeRemaining) break;
-                  } catch {}
-                }
-              }
-  
-              // Write each product as a separate line in the JSON file
-              const productEntry = JSON.stringify({
-                title,
-                price,
-                url,
-                time_remaining: timeRemaining,
-                images: imgSrc ? [imgSrc.split("?")[0]] : [],
-              }) + '\n';
-              
-              writeStream.write(productEntry);
             } catch (itemError) {
               console.error('Error processing individual item:', itemError);
             }
@@ -177,25 +216,20 @@ class BuyeeScraper {
           await pageInstance.evaluate(() => {
             document.body.innerHTML = '';
           });
-  
+    
           // Add a small delay between pages to prevent overwhelming the server
           await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (error) {
-          console.log(`No items found on page ${currentPage}. Error:`, error.message);
-          continue;
+        } catch (pageError) {
+          console.error(`Error processing page ${currentPage}:`, pageError);
         }
       }
-  
+    
       // Close write stream
       writeStream.end();
-  
-      console.log('=== Search completed successfully ===');
+    
+      const duration = (Date.now() - startTime) / 1000;
+      console.log(`=== Search completed successfully in ${duration.toFixed(2)}s ===`);
       
-      // Close browser and page
-      await pageInstance.close();
-      await browser.close();
-      
-      // Return the path to the search results file
       return searchResultsPath;
     } catch (error) {
       console.error('=== Search failed ===');
@@ -205,9 +239,16 @@ class BuyeeScraper {
         name: error.name
       });
       
-      // Ensure browser is closed even if an error occurs
-      await browser.close();
       return null;
+    } finally {
+      // Ensure cleanup of browser resources
+      try {
+        if (pageInstance) await pageInstance.close();
+        if (context) await context.close();
+        if (browser) await browser.close();
+      } catch (cleanupError) {
+        console.error('Error during browser cleanup:', cleanupError);
+      }
     }
   }
 

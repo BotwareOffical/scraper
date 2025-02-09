@@ -119,94 +119,83 @@ app.post('/search', async (req, res, next) => {
 
     console.log(`[${searchId}] Processing ${searchTerms.length} search terms`);
     
-    // Collect all search result files to process
-    const searchResultFiles = [];
+    const results = [];
+    const errors = [];
 
-    // Limit concurrent searches to prevent overwhelming resources
-    const batchSize = 1; 
-    const totalBatches = Math.ceil(searchTerms.length / batchSize);
-
-    // Increase overall timeout to 10 minutes
-    const GLOBAL_TIMEOUT = 600000; // 10 minutes
-    const operationTimeout = setTimeout(() => {
-      throw new Error('Global search operation timed out');
-    }, GLOBAL_TIMEOUT);
-
-    // Batch search terms and process
-    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-      // Add more aggressive timeout checking
-      if (Date.now() - startTime > GLOBAL_TIMEOUT) {
-        throw new Error('Search operation exceeded maximum time limit');
-      }
-
-      const startIndex = batchIndex * batchSize;
-      const batch = searchTerms.slice(startIndex, startIndex + batchSize);
-      
-      console.log(`[${searchId}] Starting batch ${batchIndex + 1}/${totalBatches}`);
-      
-      // Process each search term in the batch
-      for (const searchTerm of batch) {
+    // Process searches concurrently with a limit
+    const searchPromises = searchTerms.map(async (searchTerm) => {
+      try {
         const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
         console.log(`[${searchId}] Starting search for "${term}"`);
         
-        // Perform search and get file path
         const searchResultFile = await scraper.scrapeSearchResults(
           term, 
           minPrice, 
           maxPrice, 
           '23000', 
-          3 // Reduced from 5 to 3 pages
+          3 // Limit to 3 pages
         );
 
         if (searchResultFile) {
-          searchResultFiles.push(searchResultFile);
-        }
-      }
-    }
-
-    // Read and process search result files
-    const results = [];
-    let totalResults = 0;
-    let searchMetadata = null;
-
-    for (const filePath of searchResultFiles) {
-      try {
-        // Read file line by line
-        const fileContents = fs.readFileSync(filePath, 'utf8');
-        const lines = fileContents.split('\n').filter(line => line.trim() !== '');
-        
-        // First line is metadata
-        if (lines.length > 0) {
-          searchMetadata = JSON.parse(lines[0]);
+          // Read file line by line
+          const fileContents = fs.readFileSync(searchResultFile, 'utf8');
+          const lines = fileContents.split('\n').filter(line => line.trim() !== '');
           
-          // Parse product lines
-          for (let i = 1; i < lines.length; i++) {
-            try {
-              const product = JSON.parse(lines[i]);
-              results.push(product);
-            } catch (parseError) {
-              console.error('Error parsing product line:', parseError);
+          // First line is metadata
+          let searchMetadata = null;
+          const termResults = [];
+
+          if (lines.length > 0) {
+            searchMetadata = JSON.parse(lines[0]);
+            
+            // Parse product lines
+            for (let i = 1; i < lines.length; i++) {
+              try {
+                const product = JSON.parse(lines[i]);
+                termResults.push(product);
+              } catch (parseError) {
+                console.error('Error parsing product line:', parseError);
+              }
             }
           }
+
+          // Delete the temporary file
+          fs.unlinkSync(searchResultFile);
+
+          return {
+            term,
+            results: termResults,
+            metadata: searchMetadata
+          };
         }
-
-        // Delete the temporary file
-        fs.unlinkSync(filePath);
-      } catch (fileError) {
-        console.error('Error processing search result file:', fileError);
+        return null;
+      } catch (error) {
+        console.error(`Error searching term "${searchTerm.term}":`, error);
+        errors.push({
+          term: searchTerm.term,
+          error: error.message
+        });
+        return null;
       }
-    }
+    });
 
-    // Clear the global timeout
-    clearTimeout(operationTimeout);
+    // Run searches with a concurrency limit and timeout
+    const searchResults = await Promise.allSettled(searchPromises);
+
+    // Collect successful results
+    searchResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(...result.value.results);
+      }
+    });
+
+    // Pagination logic
+    const totalResults = results.length;
+    const startIndex = (page - 1) * pageSize;
+    const paginatedResults = results.slice(startIndex, startIndex + pageSize);
 
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
-
-    // Pagination logic
-    totalResults = results.length;
-    const startIndex = (page - 1) * pageSize;
-    const paginatedResults = results.slice(startIndex, startIndex + pageSize);
 
     res.json({
       success: true,
@@ -217,7 +206,8 @@ app.post('/search', async (req, res, next) => {
       totalPages: Math.ceil(totalResults / pageSize),
       duration: totalDuration,
       searchedTerms: searchTerms.length,
-      metadata: searchMetadata
+      errors: errors.length > 0 ? errors : undefined,
+      isPartialResult: errors.length > 0
     });
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -393,7 +383,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-const SERVER_TIMEOUT = 300000; // 5 minutes
+const SERVER_TIMEOUT = 900000; // 15 minutes
 const PORT = process.env.PORT || 10000;
 const server = app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 server.timeout = SERVER_TIMEOUT;
+server.keepAliveTimeout = 120000;
+server.headersTimeout = 120000;
+
