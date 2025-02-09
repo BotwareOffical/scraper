@@ -185,64 +185,98 @@ class BuyeeScraper {
         );
         console.log('Login state:', isLoggedIn);
 
-        // Click bid button and wait for popup
+        // Click bid button
         console.log('Looking for bid button...');
         const bidButton = page.locator('#bidNow');
         await bidButton.waitFor({ state: 'visible', timeout: 20000 });
         console.log('Found bid button, clicking...');
-
-        // Create a promise to wait for the popup
-        const popupPromise = context.waitForEvent('page');
         await bidButton.click();
-        const popupPage = await popupPromise;
-        console.log('Popup detected, waiting for load...');
+        
+        // Wait for a moment after clicking
+        await page.waitForTimeout(3000);
 
-        // Wait for popup to load
-        await popupPage.waitForLoadState('networkidle');
-        await popupPage.waitForTimeout(2000);
+        // Log frames
+        const frames = page.frames();
+        console.log('Number of frames:', frames.length);
+        for (const frame of frames) {
+            console.log('Frame URL:', frame.url());
+        }
 
-        // Handle the bid form in the popup
-        console.log('Looking for bid form in popup...');
-        const bidInput = popupPage.locator('input[name="bidYahoo[price]"]');
-        await bidInput.waitFor({ state: 'visible', timeout: 20000 });
+        // Log page content after click
+        console.log('Page content after click:');
+        const content = await page.content();
+        console.log(content.substring(0, 1000));
+
+        // Look for bid form in all possible locations
+        let bidInput = null;
+        let bidForm = null;
+
+        // First try main page
+        console.log('Checking main page for bid form...');
+        if (await page.locator('input[name="bidYahoo[price]"]').count() > 0) {
+            bidInput = page.locator('input[name="bidYahoo[price]"]');
+            console.log('Found bid form in main page');
+        }
+
+        // Then check each frame
+        if (!bidInput) {
+            console.log('Checking frames for bid form...');
+            for (const frame of frames) {
+                try {
+                    if (await frame.locator('input[name="bidYahoo[price]"]').count() > 0) {
+                        bidInput = frame.locator('input[name="bidYahoo[price]"]');
+                        console.log('Found bid form in frame:', frame.url());
+                        break;
+                    }
+                } catch (e) {
+                    console.log('Error checking frame:', e.message);
+                }
+            }
+        }
+
+        if (!bidInput) {
+            console.log('Could not find bid form, looking for alternative selectors...');
+            // Try alternative selectors
+            const selectors = [
+                '#bidYahoo_price',
+                'input[type="text"].bid-amount',
+                '.bid-form input[type="text"]',
+                'input[type="text"]'
+            ];
+
+            for (const selector of selectors) {
+                if (await page.locator(selector).count() > 0) {
+                    bidInput = page.locator(selector);
+                    console.log('Found alternative bid input with selector:', selector);
+                    break;
+                }
+            }
+        }
+
+        if (!bidInput) {
+            throw new Error('Bid form not found after extensive search');
+        }
 
         // Fill bid amount
         console.log('Filling bid amount:', bidAmount);
         await bidInput.click();
-        await popupPage.waitForTimeout(500);
+        await page.waitForTimeout(500);
         await bidInput.fill('');
-        await popupPage.waitForTimeout(500);
+        await page.waitForTimeout(500);
         await bidInput.type(bidAmount.toString(), { delay: 100 });
-        await popupPage.waitForTimeout(1000);
+        await page.waitForTimeout(1000);
 
-        // Handle plan selection in popup
-        const planSelector = popupPage.locator('select[name="bidYahoo[plan]"]');
+        // Handle plan selection
+        const planSelector = page.locator('select[name="bidYahoo[plan]"]');
         if (await planSelector.count() > 0) {
             await planSelector.selectOption('99');
-            await popupPage.waitForTimeout(1000);
+            await page.waitForTimeout(1000);
         }
 
-        // Submit bid in popup
-        console.log('Submitting bid...');
-        const submitButton = popupPage.locator('#bid_submit');
-        await submitButton.waitFor({ state: 'visible', timeout: 10000 });
+        // Submit bid
+        const submitButton = page.locator('#bid_submit');
         await submitButton.click();
-
-        // Wait for confirmation
-        await popupPage.waitForTimeout(3000);
-
-        // Check for errors in popup
-        const errorMessage = await popupPage.evaluate(() => {
-            const errorEl = document.querySelector('.error-message, .alert-error, .bid-error');
-            return errorEl ? errorEl.textContent : null;
-        });
-
-        if (errorMessage) {
-            throw new Error(`Bid error: ${errorMessage}`);
-        }
-
-        // Close popup
-        await popupPage.close();
+        await page.waitForTimeout(3000);
 
         return {
             success: true,
