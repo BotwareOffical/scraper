@@ -315,8 +315,6 @@ class BuyeeScraper {
         });
 
         const page = await context.newPage();
-        
-        // Increase timeouts
         page.setDefaultTimeout(60000);
         page.setDefaultNavigationTimeout(60000);
 
@@ -333,6 +331,29 @@ class BuyeeScraper {
         });
         console.log('Login state:', isLoggedIn);
 
+        // If not logged in, perform login
+        if (!isLoggedIn) {
+            console.log('Not logged in, attempting to login...');
+            await page.goto('https://buyee.jp/signup/login', {
+                waitUntil: 'networkidle'
+            });
+
+            await page.fill('#login_mailAddress', "teege@machen-sachen.com");
+            await page.fill('#login_password', "&7.s!M47&zprEv.");
+            
+            await page.click('#login_submit');
+            await page.waitForNavigation();
+
+            // Save new login state
+            await context.storageState({ path: "login.json" });
+
+            // Go back to product page
+            await page.goto(productUrl, {
+                waitUntil: 'networkidle',
+                timeout: 60000
+            });
+        }
+
         // Wait for and click bid button
         console.log('Waiting for bid button...');
         const bidButton = page.locator('#bidNow');
@@ -341,12 +362,11 @@ class BuyeeScraper {
         await bidButton.click();
         await page.waitForTimeout(2000);
 
-        // Handle bid form with retry logic
+        // Handle bid form
         console.log('Attempting to fill bid form...');
         const bidInput = page.locator('input[name="bidYahoo[price]"]');
         await bidInput.waitFor({ state: 'visible', timeout: 20000 });
         
-        // Clear and fill bid amount
         await bidInput.click();
         await page.waitForTimeout(500);
         await bidInput.fill('');
@@ -368,7 +388,7 @@ class BuyeeScraper {
         await submitButton.click();
         await page.waitForTimeout(2000);
 
-        // Extract product details for response
+        // Extract product details
         const productDetails = await page.evaluate(() => {
             const getElementText = (selectors) => {
                 for (const selector of selectors) {
@@ -386,7 +406,7 @@ class BuyeeScraper {
             };
         });
 
-        // Prepare response
+        // Save bid details
         const bidDetails = {
             productUrl,
             bidAmount,
