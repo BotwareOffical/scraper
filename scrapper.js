@@ -174,89 +174,40 @@ class BuyeeScraper {
       page.setDefaultTimeout(60000);
       page.setDefaultNavigationTimeout(60000);
   
-      // Log all network requests and responses for debugging
-      page.on('request', request => console.log('>> Request:', request.method(), request.url()));
-      page.on('response', response => console.log('<< Response:', response.status(), response.url()));
+      // Log cookies for debugging
+      const cookies = await context.cookies();
+      console.log('Cookies before navigating to product page:', cookies);
   
       // Navigate to the product page
       console.log('Navigating to product page:', productUrl);
       await page.goto(productUrl, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(2000); // Wait for the page to fully load
+      await page.waitForTimeout(2000); // Wait for the page to load
   
-      // Check if we are logged in by verifying the current URL
+      // Check if we are logged in
       const currentUrl = page.url();
       console.log('Current URL after navigation:', currentUrl);
       if (currentUrl.includes('signup/login')) {
         throw new Error('Login session expired or not logged in');
       }
+      const isLoggedIn = await this.checkLoginState();
+      if (!isLoggedIn) {
+        await this.refreshLoginSession(); // Ensure this works correctly
+      }
+
   
-      // Log the page content and cookies for debugging
-      const pageContent = await page.content();
-      console.log('Page content before clicking bid button:', pageContent.slice(0, 1000)); // Log first 1000 chars
-      const cookies = await context.cookies();
-      console.log('Cookies before clicking bid button:', cookies);
-  
-      // Find and click the bid button
+      // Click the bid button
       console.log('Looking for bid button...');
       const bidButton = page.locator('#bidNow');
       await bidButton.waitFor({ state: 'visible', timeout: 20000 });
       console.log('Bid button found, clicking...');
-  
-      // Take a screenshot before clicking the button
-      await page.screenshot({ path: 'before-bid-click.png', fullPage: true });
-      console.log('Saved screenshot: before-bid-click.png');
-  
-      // Click the bid button
       await bidButton.click();
       await page.waitForTimeout(5000); // Wait for the bid form to load
-  
-      // Log the page content and CSS changes after clicking the button
-      const pageContentAfterClick = await page.content();
-      console.log('Page content after clicking bid button:', pageContentAfterClick.slice(0, 1000)); // Log first 1000 chars
-  
-      // Take a screenshot after clicking the button
-      await page.screenshot({ path: 'after-bid-click.png', fullPage: true });
-      console.log('Saved screenshot: after-bid-click.png');
   
       // Check if we are redirected to the login page
       const newUrl = page.url();
       console.log('Current URL after clicking bid button:', newUrl);
       if (newUrl.includes('signup/login')) {
         throw new Error('Redirected to login page after clicking bid button');
-      }
-  
-      // Debugging: Check if the bid form exists
-      console.log('Checking if bid form exists...');
-      const formExists = await page.locator('#bid_form').count();
-      console.log('Bid form on same page?', formExists);
-  
-      if (!formExists) {
-        // Log visible elements on the page for debugging
-        const visibleElements = await page.evaluate(() => {
-          return [...document.querySelectorAll('*')]
-            .filter(el => el.offsetParent !== null) // Only visible elements
-            .map(el => el.tagName + (el.id ? `#${el.id}` : '') + (el.className ? `.${el.className}` : ''));
-        });
-        console.log('Visible elements on page:', visibleElements.slice(0, 50)); // Log first 50 elements
-  
-        // Check for alerts or dialogs
-        const alertText = await page.evaluate(() => window.alert?.message || null);
-        if (alertText) {
-          console.log('JavaScript alert found:', alertText);
-        }
-  
-        // Check if a new tab opened
-        const pages = context.pages();
-        console.log('Number of open tabs:', pages.length);
-  
-        if (pages.length > 1) {
-          const bidPage = pages[pages.length - 1];
-          await bidPage.bringToFront();
-          await bidPage.waitForLoadState('networkidle');
-          console.log('Switched to new tab:', bidPage.url());
-        } else {
-          throw new Error('Bid form did not open on the same page or in a new tab');
-        }
       }
   
       // Proceed with filling out the bid form
@@ -280,7 +231,7 @@ class BuyeeScraper {
       }
     }
   }
-
+  
   async checkLoginState() {
     try {
         const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
@@ -313,8 +264,7 @@ class BuyeeScraper {
         return false;
     }
   }
-  YOUR_EMAIL = "teege@machen-sachen.com"
-  YOUR_PASSWORD = "&7.s!M47&zprEv."
+
   async refreshLoginSession() {
     const loginResult = await this.login('YOUR_EMAIL', 'YOUR_PASSWORD');
     if (loginResult.success) {
@@ -325,80 +275,71 @@ class BuyeeScraper {
   }
 
   // Update bid prices
-  async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
+  async updateBid(productUrl) {
+    const browser = await chromium.launch({ 
+      headless: true, 
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
     });
-  
+    const context = await browser.newContext({ storageState: "login.json" });
+
     try {
-      const context = await browser.newContext({
-        storageState: "login.json", // Ensure we use the saved login session
-        viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      });
-  
       const page = await context.newPage();
-      page.setDefaultTimeout(60000);
-      page.setDefaultNavigationTimeout(60000);
-  
-      // Log cookies for debugging
-      const cookies = await context.cookies();
-      console.log('Cookies before navigating to product page:', cookies);
-  
-      // Navigate to the product page
-      console.log('Navigating to product page:', productUrl);
-      await page.goto(productUrl, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(2000); // Wait for the page to load
-  
-      // Check if we are logged in
-      const currentUrl = page.url();
-      console.log('Current URL after navigation:', currentUrl);
-      if (currentUrl.includes('signup/login')) {
-        throw new Error('Login session expired or not logged in');
+      await page.goto(productUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 300000
+      });
+
+      // Extract price with multiple selectors
+      let price = 'Price Not Available';
+      const priceElements = [
+        page.locator('.current_price .price'),
+        page.locator('.price'),
+        page.locator('.itemPrice')
+      ];
+
+      for (const priceElement of priceElements) {
+        try {
+          const priceText = await priceElement.textContent();
+          if (priceText) {
+            price = priceText.trim();
+            break;
+          }
+        } catch {}
       }
-      if (await this.checkLoginState() === false) {
-        await this.refreshLoginSession();
+
+      // Extract time remaining with multiple selectors
+      let timeRemaining = 'Time Not Available';
+      const timeRemainingElements = [
+        page.locator('.itemInformation__infoItem .g-text--attention'),
+        page.locator('.itemInfo__time span'),
+        page.locator('.timeLeft'),
+        page.locator('.g-text--attention')
+      ];
+
+      for (const timeElement of timeRemainingElements) {
+        try {
+          const timeText = await timeElement.textContent();
+          if (timeText) {
+            timeRemaining = timeText.trim();
+            break;
+          }
+        } catch {}
       }
-      // Click the bid button
-      console.log('Looking for bid button...');
-      const bidButton = page.locator('#bidNow');
-      await bidButton.waitFor({ state: 'visible', timeout: 20000 });
-      console.log('Bid button found, clicking...');
-      await bidButton.click();
-      await page.waitForTimeout(5000); // Wait for the bid form to load
-  
-      // Check if we are redirected to the login page
-      const newUrl = page.url();
-      console.log('Current URL after clicking bid button:', newUrl);
-      if (newUrl.includes('signup/login')) {
-        throw new Error('Redirected to login page after clicking bid button');
-      }
-  
-      // Proceed with filling out the bid form
-      console.log('Proceeding with bid...');
-      const bidPage = page;
-      await bidPage.fill('#bidYahoo_price', bidAmount.toString());
-      await bidPage.selectOption('#bidYahoo_plan', '99');
-      await bidPage.check('#bidYahoo_payment_method_type_2');
-      await bidPage.click('#bid_submit');
-      await bidPage.waitForTimeout(3000); // Wait for the bid to be processed
-  
-      console.log('Bid placed successfully!');
-      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
-  
+
+      return {
+        productUrl,
+        price: price.trim(),
+        timeRemaining: timeRemaining.trim()
+      };
     } catch (error) {
-      console.error('Bid placement error:', error);
-      return { success: false, message: error.message || 'Failed to place bid' };
+      console.error("Error during bid update:", error);
+      return {
+        productUrl,
+        error: error.message
+      };
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await context.close();
+      await browser.close();
     }
   }
 
