@@ -295,158 +295,209 @@ async removeFinishedAuctions(finishedUrls) {
   }
 }
 
-  async placeBid(productUrl, bidAmount) {
-    const browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });    
-    const context = await browser.newContext({ storageState: "login.json" });
+async placeBid(productUrl, bidAmount) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });    
+  const context = await browser.newContext({ storageState: "login.json" });
 
-    try {
-      const page = await context.newPage();
-      await page.goto(productUrl);
+  try {
+    const page = await context.newPage();
+    
+    // Enable detailed logging
+    page.on('console', msg => console.log('Browser console:', msg.text()));
+    page.on('pageerror', err => console.error('Page error:', err));
+    
+    console.log('Navigating to product page:', productUrl);
+    await page.goto(productUrl, {
+      waitUntil: 'networkidle',
+      timeout: 60000
+    });
 
-      await page.waitForTimeout(2000);
+    await page.waitForTimeout(2000);
 
-      // Check if the "Bid Now" button exists
-      const bidNowButton = page.locator("#bidNow");
-      if (!(await bidNowButton.count())) {
-        console.warn('No "Bid Now" button found on the page');
-        return {
-          success: false,
-          message: 'No "Bid Now" button found on the page',
-        };
+    // Extract product details
+    const productDetails = await page.evaluate(() => {
+      // Title extraction
+      let title = 'No Title';
+      const titleElements = [
+        document.querySelector('h1'),
+        document.querySelector('.itemName'),
+        document.querySelector('.itemInfo__name'),
+        document.title
+      ];
+      for (const titleEl of titleElements) {
+        if (titleEl && titleEl.textContent) {
+          title = titleEl.textContent.trim();
+          break;
+        }
       }
 
-      // Extract product details
-      const productDetails = await page.evaluate(() => {
-        // Title extraction
-        let title = 'No Title';
-        const titleElements = [
-          document.querySelector('h1'),
-          document.querySelector('.itemName'),
-          document.querySelector('.itemInfo__name'),
-          document.title
-        ];
-        for (const titleEl of titleElements) {
-          if (titleEl && titleEl.textContent) {
-            title = titleEl.textContent.trim();
+      // Thumbnail extraction
+      let thumbnailUrl = null;
+      const thumbnailSelectors = [
+        '.flexslider .slides img',
+        '.flex-control-nav .slides img',
+        '.itemImg img',
+        '.mainImage img',
+        '.g-thumbnail__image',
+        '.itemPhoto img',
+        'img.primary-image'
+      ];
+
+      for (const selector of thumbnailSelectors) {
+        const thumbnailElement = document.querySelector(selector);
+        if (thumbnailElement) {
+          thumbnailUrl = thumbnailElement.src || 
+                         thumbnailElement.getAttribute('data-src') || 
+                         thumbnailElement.getAttribute('data-original');
+          if (thumbnailUrl) {
+            thumbnailUrl = thumbnailUrl.split('?')[0];
             break;
           }
         }
-
-        // Thumbnail extraction
-        let thumbnailUrl = null;
-        const thumbnailSelectors = [
-          '.flexslider .slides img',
-          '.flex-control-nav .slides img',
-          '.itemImg img',
-          '.mainImage img',
-          '.g-thumbnail__image',
-          '.itemPhoto img',
-          'img.primary-image'
-        ];
-
-        for (const selector of thumbnailSelectors) {
-          const thumbnailElement = document.querySelector(selector);
-          if (thumbnailElement) {
-            thumbnailUrl = thumbnailElement.src || 
-                           thumbnailElement.getAttribute('data-src') || 
-                           thumbnailElement.getAttribute('data-original');
-            if (thumbnailUrl) {
-              thumbnailUrl = thumbnailUrl.split('?')[0];
-              break;
-            }
-          }
-        }
-
-        // Time remaining extraction
-        let timeRemaining = 'Time Not Available';
-        const timeElements = [
-          document.querySelector('.itemInformation__infoItem .g-text--attention'),
-          document.querySelector('.itemInfo__time span'),
-          document.querySelector('.timeLeft'),
-          document.querySelector('.g-text--attention'),
-          document.querySelector('.itemInformation .g-text')
-        ];
-        for (const timeEl of timeElements) {
-          if (timeEl && timeEl.textContent) {
-            timeRemaining = timeEl.textContent.trim();
-            break;
-          }
-        }
-
-        return { title, thumbnailUrl, timeRemaining };
-      });
-
-      // Extract the time remaining for the auction
-      const timeRemaining = await page
-        .locator('//span[contains(@class, "g-title")]/following-sibling::span')
-        .first()
-        .textContent();
-
-      // Click the "Bid Now" button
-      await bidNowButton.click();
-
-      // Clear and fill the bid amount (convert to string)
-      const bidInput = page.locator('input[name="bidYahoo[price]"]');
-      await bidInput.clear();
-      await bidInput.fill(bidAmount.toString());
-      await page.selectOption('select[name="bidYahoo[plan]"]', '99');
-      console.log('Selected Lite Plan and filled in Bid amount.');
-
-
-
-      // Uncomment if a confirmation step is required
-      // await page.click('#bid_submit');
-
-      // Save bid details to JSON file
-      const bidDetails = {
-        productUrl,
-        bidAmount,
-        timestamp: timeRemaining.trim(),
-        title: productDetails.title,
-        thumbnailUrl: productDetails.thumbnailUrl
-      };
-
-      let bidFileData = { bids: [] }; // Default structure for the JSON file
-
-      // Check if the JSON file exists and read its contents
-      if (fs.existsSync(bidFilePath)) {
-        const fileContent = fs.readFileSync(bidFilePath, "utf8");
-        bidFileData = JSON.parse(fileContent);
       }
 
-      // Check if the product URL already exists in the file
-      const existingIndex = bidFileData.bids.findIndex(
-        (bid) => bid.productUrl === productUrl
-      );
-
-      if (existingIndex !== -1) {
-        // Update existing entry
-        bidFileData.bids[existingIndex] = bidDetails;
-      } else {
-        // Add new entry
-        bidFileData.bids.push(bidDetails);
+      // Time remaining extraction
+      let timeRemaining = 'Time Not Available';
+      const timeElements = [
+        document.querySelector('.itemInformation__infoItem .g-text--attention'),
+        document.querySelector('.itemInfo__time span'),
+        document.querySelector('.timeLeft'),
+        document.querySelector('.g-text--attention'),
+        document.querySelector('.itemInformation .g-text')
+      ];
+      for (const timeEl of timeElements) {
+        if (timeEl && timeEl.textContent) {
+          timeRemaining = timeEl.textContent.trim();
+          break;
+        }
       }
 
-      // Write the updated structure to the file
-      fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
+      return { title, thumbnailUrl, timeRemaining };
+    });
 
+    // Extract the time remaining for the auction
+    const timeRemaining = await page
+      .locator('//span[contains(@class, "g-title")]/following-sibling::span')
+      .first()
+      .textContent();
+
+    // Take screenshot before clicking bid button
+    await page.screenshot({ path: 'debug_before_bid.png' });
+
+    // Check if the "Bid Now" button exists and click it using JavaScript
+    const bidButtonExists = await page.evaluate(() => {
+      const button = document.querySelector('#bidNow');
+      if (button) {
+        // Create and dispatch a click event to trigger Knockout.js binding
+        const clickEvent = new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        });
+        button.dispatchEvent(clickEvent);
+        return true;
+      }
+      return false;
+    });
+
+    if (!bidButtonExists) {
+      console.warn('No "Bid Now" button found on the page');
       return {
-        success: true,
-        message: `Bid of ${bidAmount} placed successfully`,
-        details: bidDetails
+        success: false,
+        message: 'No "Bid Now" button found on the page',
       };
-    } catch (error) {
-      console.error("Error during bid placement:", error);
-      throw new Error("Failed to place the bid. Please try again.");
-    } finally {
-      // Close context and browser to avoid resource leaks
-      await context.close();
-      await browser.close();
     }
+
+    // Wait for the bid form to appear
+    console.log('Waiting for bid form...');
+    await page.waitForSelector('input[name="bidYahoo[price]"]', {
+      state: 'visible',
+      timeout: 15000
+    });
+
+    // Wait a moment for the form to be fully interactive
+    await page.waitForTimeout(1000);
+
+    // Take screenshot of the form
+    await page.screenshot({ path: 'debug_bid_form.png' });
+
+    // Clear and fill the bid amount
+    console.log('Filling bid amount:', bidAmount);
+    const bidInput = page.locator('input[name="bidYahoo[price]"]');
+    await bidInput.click({ clickCount: 3 }); // Select all text
+    await bidInput.press('Backspace'); // Clear existing text
+    await bidInput.fill(bidAmount.toString());
+
+    // Select the Lite plan
+    console.log('Selecting Lite plan...');
+    await page.selectOption('select[name="bidYahoo[plan]"]', '99');
+    
+    // Wait for a moment
+    await page.waitForTimeout(1000);
+
+    // Click the submit button
+    console.log('Clicking submit button...');
+    const submitButton = page.locator('#bid_submit');
+    await submitButton.waitFor({ state: 'visible', timeout: 5000 });
+    // await submitButton.click();
+    console.log('Page click...');
+
+
+    // Wait for the submission to process
+    await page.waitForTimeout(2000);
+
+    console.log('Bid submission completed');
+
+    // Save bid details to JSON file
+    const bidDetails = {
+      productUrl,
+      bidAmount,
+      timestamp: timeRemaining.trim(),
+      title: productDetails.title,
+      thumbnailUrl: productDetails.thumbnailUrl
+    };
+
+    let bidFileData = { bids: [] }; // Default structure for the JSON file
+
+    // Check if the JSON file exists and read its contents
+    if (fs.existsSync(bidFilePath)) {
+      const fileContent = fs.readFileSync(bidFilePath, "utf8");
+      bidFileData = JSON.parse(fileContent);
+    }
+
+    // Check if the product URL already exists in the file
+    const existingIndex = bidFileData.bids.findIndex(
+      (bid) => bid.productUrl === productUrl
+    );
+
+    if (existingIndex !== -1) {
+      // Update existing entry
+      bidFileData.bids[existingIndex] = bidDetails;
+    } else {
+      // Add new entry
+      bidFileData.bids.push(bidDetails);
+    }
+
+    // Write the updated structure to the file
+    fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
+
+    return {
+      success: true,
+      message: `Bid of ${bidAmount} placed successfully`,
+      details: bidDetails
+    };
+  } catch (error) {
+    console.error("Error during bid placement:", error);
+    throw new Error("Failed to place the bid. Please try again.");
+  } finally {
+    // Close context and browser to avoid resource leaks
+    await context.close();
+    await browser.close();
   }
+}
 
   // Update bid prices
   async updateBid(productUrl) {
