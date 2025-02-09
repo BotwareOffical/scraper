@@ -323,8 +323,9 @@ class BuyeeScraper {
         });
 
         // Check for 403 Forbidden
-        const pageContent = await page.content();
-        if (pageContent.includes('403 Forbidden')) {
+        const pageHtml = await page.content();
+        fs.writeFileSync("page_debug.html", pageHtml); 
+        console.log("Saved page HTML for debugging.");        if (pageContent.includes('403 Forbidden')) {
             console.warn('Encountered 403 Forbidden! Retrying with delay...');
             await page.waitForTimeout(5000); // Wait before retrying
             await page.reload({ waitUntil: 'networkidle' });
