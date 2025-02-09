@@ -196,11 +196,9 @@ class BuyeeScraper {
         
         // Click and wait for form in popup/new page
         console.log('Clicking bid button...');
-        const [newPage] = await Promise.all([
-            context.waitForEvent('page').catch(() => null),  // Wait for popup
-            page.waitForNavigation().catch(() => null),      // Wait for navigation
-            bidButton.click()                                // Click the button
-        ]);
+        await page.waitForTimeout(3000); // Wait for any possible navigation
+        console.log('After clicking bid, new URL:', currentUrl);
+        
 
         // Determine which page to use (popup or navigated)
         const bidPage = newPage || page;
@@ -216,7 +214,7 @@ class BuyeeScraper {
 
         // Wait specifically for the bid form section to load
         console.log('Waiting for bid form to load...');
-        await bidPage.waitForSelector('.bidInput__main', { timeout: 30000 });
+        await bidPage.waitForSelector('.bidInput__main', { timeout: 60000 });
 
         // Verify we have the bid form
         const formExists = await bidPage.locator('#bid_form').count() > 0;
