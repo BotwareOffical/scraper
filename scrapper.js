@@ -392,9 +392,13 @@ async removeFinishedAuctions(finishedUrls) {
       const bidInput = page.locator('input[name="bidYahoo[price]"]');
       await bidInput.clear();
       await bidInput.fill(bidAmount.toString());
+      await page.selectOption('select[name="bidYahoo[plan]"]', '99');
+      console.log('Selected Lite Plan and filled in Bid amount.');
+
+
 
       // Uncomment if a confirmation step is required
-      // await page.locator("#bid_submit").click();
+      // await page.click('#bid_submit');
 
       // Save bid details to JSON file
       const bidDetails = {
