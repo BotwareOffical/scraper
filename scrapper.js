@@ -302,174 +302,73 @@ class BuyeeScraper {
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--no-zygote',
-            '--no-xshm',
-            '--window-size=1920,1080',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-features=IsolateOrigins',
-            '--disable-site-isolation-trials'
+            '--disable-features=IsolateOrigins,site-per-process'
         ]
     });
 
-    const context = await browser.newContext({
-        storageState: "login.json",
-        viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        extraHTTPHeaders: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'en-US,en;q=0.9,ja;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-            'Upgrade-Insecure-Requests': '1'
-        }
-    });
-
     try {
-        const page = await context.newPage();
-        page.setDefaultTimeout(300000);
-        page.setDefaultNavigationTimeout(300000);
-
-        // Add scripts to mask automation
-        await page.addInitScript(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            window.chrome = { runtime: {} };
+        // Load stored login state
+        const context = await browser.newContext({
+            storageState: "login.json",
+            viewport: { width: 1280, height: 720 },
+            userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
 
-        // First, let's try to visit the main page to establish cookies
-        await page.goto('https://buyee.jp', {
+        const page = await context.newPage();
+        
+        // Increase timeouts
+        page.setDefaultTimeout(60000);
+        page.setDefaultNavigationTimeout(60000);
+
+        console.log('Attempting to navigate to:', productUrl);
+        await page.goto(productUrl, { 
             waitUntil: 'networkidle',
             timeout: 60000
         });
+
+        // Check if we're logged in
+        const isLoggedIn = await page.evaluate(() => {
+            return document.cookie.includes('otherbuyee') || 
+                   document.cookie.includes('userProfile');
+        });
+        console.log('Login state:', isLoggedIn);
+
+        // Wait for and click bid button
+        console.log('Waiting for bid button...');
+        const bidButton = page.locator('#bidNow');
+        await bidButton.waitFor({ state: 'visible', timeout: 20000 });
+        await page.waitForTimeout(1000);
+        await bidButton.click();
+        await page.waitForTimeout(2000);
+
+        // Handle bid form with retry logic
+        console.log('Attempting to fill bid form...');
+        const bidInput = page.locator('input[name="bidYahoo[price]"]');
+        await bidInput.waitFor({ state: 'visible', timeout: 20000 });
         
-        await page.waitForTimeout(2000 + Math.random() * 1000);
+        // Clear and fill bid amount
+        await bidInput.click();
+        await page.waitForTimeout(500);
+        await bidInput.fill('');
+        await page.waitForTimeout(500);
+        await bidInput.fill(bidAmount.toString());
+        await page.waitForTimeout(1000);
 
-        // Now navigate to the product page
-        console.log('Attempting to navigate to:', productUrl);
-        
-        let retryCount = 0;
-        const maxRetries = 3;
-        let pageLoaded = false;
-
-        while (!pageLoaded && retryCount < maxRetries) {
-            try {
-                await page.goto(productUrl, {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 60000
-                });
-
-                // Wait for key elements
-                await page.waitForLoadState('networkidle');
-                
-                // Check if we're logged in
-                const loginState = await page.evaluate(() => {
-                    return window.document.params && window.document.params.IS_LOGIN;
-                });
-
-                console.log('Login state:', loginState);
-
-                if (!loginState) {
-                    console.log('Not logged in, attempting to refresh login...');
-                    
-                    // Try to refresh the login state
-                    await context.clearCookies();
-                    await context.addCookies(JSON.parse(fs.readFileSync('login.json', 'utf8')).cookies);
-                    
-                    await page.reload({
-                        waitUntil: 'networkidle',
-                        timeout: 60000
-                    });
-
-                    await page.waitForTimeout(3000);
-                }
-
-                const pageContent = await page.content();
-                
-                if (pageContent.includes('403 Forbidden')) {
-                    console.warn(`Attempt ${retryCount + 1}: Encountered 403 Forbidden`);
-                    retryCount++;
-                    
-                    // Clear cookies and storage on retry
-                    await context.clearCookies();
-                    await page.evaluate(() => {
-                        localStorage.clear();
-                        sessionStorage.clear();
-                    });
-                    
-                    await page.waitForTimeout(5000 + Math.random() * 3000);
-                    continue;
-                }
-
-                // Check if the page loaded successfully
-                const pageTitle = await page.title();
-                if (!pageTitle.includes('403') && !pageContent.includes('403 Forbidden')) {
-                    pageLoaded = true;
-                }
-
-            } catch (error) {
-                console.warn(`Navigation attempt ${retryCount + 1} failed:`, error.message);
-                retryCount++;
-                await page.waitForTimeout(5000 + Math.random() * 3000);
-            }
+        // Handle plan selection
+        try {
+            await page.selectOption('select[name="bidYahoo[plan]"]', '99', { timeout: 10000 });
+            await page.waitForTimeout(1000);
+        } catch (error) {
+            console.log('Plan selection not required or already selected');
         }
 
-        if (!pageLoaded) {
-            throw new Error('Failed to load page after maximum retries');
-        }
+        // Submit bid
+        const submitButton = page.locator('#bid_submit');
+        await submitButton.waitFor({ state: 'visible', timeout: 10000 });
+        await submitButton.click();
+        await page.waitForTimeout(2000);
 
-        // Wait for scripts to load
-        await page.waitForFunction(() => {
-            return typeof $ !== 'undefined' && document.params;
-        });
-
-        // Simulate human behavior
-        await page.evaluate(() => {
-            const randomScroll = () => {
-                window.scrollBy(0, Math.random() * 100);
-            };
-            
-            return new Promise((resolve) => {
-                let scrollCount = 0;
-                const interval = setInterval(() => {
-                    randomScroll();
-                    scrollCount++;
-                    if (scrollCount >= 3) {
-                        clearInterval(interval);
-                        resolve();
-                    }
-                }, 500);
-            });
-        });
-
-        await page.waitForTimeout(2000 + Math.random() * 1000);
-
-        // Log page state for debugging
-        const domState = await page.evaluate(() => {
-            const button = document.querySelector('#bidNow');
-            return {
-                buttonExists: !!button,
-                buttonVisible: button ? window.getComputedStyle(button).display !== 'none' : false,
-                isLoggedIn: document.params.IS_LOGIN,
-                documentReady: typeof $ !== 'undefined'
-            };
-        });
-        console.log('DOM State:', domState);
-
-        // Check for bid button existence
-        const bidNowButton = page.locator("#bidNow");
-        const bidButtonExists = await bidNowButton.count();
-
-        if (!bidButtonExists) {
-            console.warn('No "Bid Now" button found on the page');
-            return { success: false, message: 'No "Bid Now" button found on the page' };
-        }
-
-        // Extract product details
+        // Extract product details for response
         const productDetails = await page.evaluate(() => {
             const getElementText = (selectors) => {
                 for (const selector of selectors) {
@@ -481,47 +380,13 @@ class BuyeeScraper {
                 return null;
             };
 
-            const title = getElementText(['h1', '.itemName', '.itemInfo__name']) || 'No Title';
-            let thumbnailUrl = null;
-            const imageSelectors = ['.flexslider .slides img', '.mainImage img', '.g-thumbnail__image'];
-            
-            for (const selector of imageSelectors) {
-                const imageElement = document.querySelector(selector);
-                if (imageElement) {
-                    thumbnailUrl = imageElement.src || imageElement.getAttribute('data-src');
-                    break;
-                }
-            }
-            return { title, thumbnailUrl };
+            return {
+                title: getElementText(['h1', '.itemName', '.itemInfo__name']) || 'No Title',
+                thumbnailUrl: document.querySelector('.flexslider .slides img, .mainImage img')?.src || null
+            };
         });
 
-        // Click bid button and wait for form
-        await bidNowButton.click();
-        await page.waitForTimeout(2000 + Math.random() * 1000);
-
-        // Fill bid form
-        const bidInput = page.locator('input[name="bidYahoo[price]"]');
-        await bidInput.waitFor({ state: 'visible', timeout: 10000 });
-        await bidInput.click({ clickCount: 3 });
-        await page.waitForTimeout(500);
-        await bidInput.press('Backspace');
-        await bidInput.fill(bidAmount.toString());
-
-        // Select plan if available
-        try {
-            await page.selectOption('select[name="bidYahoo[plan]"]', '99');
-        } catch (error) {
-            console.log('Plan selection not available or already selected');
-        }
-
-        // Submit bid
-        const submitButton = page.locator('#bid_submit');
-        if (await submitButton.count()) {
-            await submitButton.click();
-            await page.waitForTimeout(2000);
-        }
-
-        // Save bid details
+        // Prepare response
         const bidDetails = {
             productUrl,
             bidAmount,
@@ -530,31 +395,24 @@ class BuyeeScraper {
             timestamp: new Date().toISOString()
         };
 
-        let bidFileData = { bids: [] };
-        if (fs.existsSync(bidFilePath)) {
-            const fileContent = fs.readFileSync(bidFilePath, "utf8");
-            bidFileData = JSON.parse(fileContent);
-        }
-
-        const existingIndex = bidFileData.bids.findIndex(bid => bid.productUrl === productUrl);
-        if (existingIndex !== -1) {
-            bidFileData.bids[existingIndex] = bidDetails;
-        } else {
-            bidFileData.bids.push(bidDetails);
-        }
-
-        fs.writeFileSync(bidFilePath, JSON.stringify(bidFileData, null, 2));
-
-        return { success: true, message: `Bid of ${bidAmount} placed successfully`, details: bidDetails };
+        return {
+            success: true,
+            message: `Bid of ${bidAmount} placed successfully`,
+            details: bidDetails
+        };
 
     } catch (error) {
         console.error("Error during bid placement:", error);
-        return { success: false, message: "Failed to place the bid. Please try again." };
+        return {
+            success: false,
+            message: error.message || "Failed to place bid"
+        };
     } finally {
-        await context.close();
-        await browser.close();
+        if (browser) {
+            await browser.close();
+        }
     }
-  }
+}
 
   // Update bid prices
   async updateBid(productUrl) {
