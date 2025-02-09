@@ -44,9 +44,10 @@ class BuyeeScraper {
     console.log('Browser and context set up successfully');
     
     try {
-      const allProducts = [];
-      console.log('Initialized products array');
-  
+      // Use a temporary file to store results instead of keeping everything in memory
+      const searchResultsPath = path.join(__dirname, `search_${Date.now()}.json`);
+      const writeStream = fs.createWriteStream(searchResultsPath, { flags: 'a' });
+      
       // Create a single page and reuse it
       const pageInstance = await context.newPage();
       pageInstance.setDefaultTimeout(2000000);
@@ -81,11 +82,19 @@ class BuyeeScraper {
       // Calculate total pages
       const calculatedTotalPages = Math.min(
         Math.ceil(totalProducts / productsPerPage), 
-        totalProducts < productsPerPage ? 1 : 3 // Limit to 5 pages instead of 10
+        totalProducts < productsPerPage ? 1 : 3 // Limit to 3 pages instead of 10
       );
       totalPages = totalPages || calculatedTotalPages;
   
       console.log(`Total products: ${totalProducts}, Total pages: ${totalPages}`);
+  
+      // Write metadata to the first line of the file
+      writeStream.write(JSON.stringify({
+        term,
+        totalProducts,
+        totalPages,
+        timestamp: Date.now()
+      }) + '\n');
   
       for (let currentPage = 1; currentPage <= totalPages; currentPage++) {
         // Construct search URL with page number
@@ -153,13 +162,16 @@ class BuyeeScraper {
                 }
               }
   
-              allProducts.push({
+              // Write each product as a separate line in the JSON file
+              const productEntry = JSON.stringify({
                 title,
                 price,
                 url,
                 time_remaining: timeRemaining,
                 images: imgSrc ? [imgSrc.split("?")[0]] : [],
-              });
+              }) + '\n';
+              
+              writeStream.write(productEntry);
             } catch (itemError) {
               console.error('Error processing individual item:', itemError);
             }
@@ -180,20 +192,17 @@ class BuyeeScraper {
         }
       }
   
-      // Save all products to search.json
-      const filePath = path.join(__dirname, "search.json");
-      console.log(`Saving results to ${filePath}`);
-      fs.writeFileSync(filePath, JSON.stringify(allProducts, null, 2), "utf-8");
-      console.log(`Successfully saved ${allProducts.length} products to file`);
+      // Close write stream
+      writeStream.end();
   
       console.log('=== Search completed successfully ===');
-      console.log(`Total products found: ${allProducts.length}`);
       
       // Close browser and page
       await pageInstance.close();
       await browser.close();
       
-      return allProducts;
+      // Return the path to the search results file
+      return searchResultsPath;
     } catch (error) {
       console.error('=== Search failed ===');
       console.error('Error details:', {
@@ -204,7 +213,7 @@ class BuyeeScraper {
       
       // Ensure browser is closed even if an error occurs
       await browser.close();
-      return [];
+      return null;
     }
   }
 

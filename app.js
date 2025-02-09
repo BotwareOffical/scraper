@@ -118,9 +118,9 @@ app.post('/search', async (req, res, next) => {
     }
 
     console.log(`[${searchId}] Processing ${searchTerms.length} search terms`);
-    const results = [];
-    const errors = [];
-    let hasPartialSuccess = false;
+    
+    // Collect all search result files to process
+    const searchResultFiles = [];
 
     // Limit concurrent searches to prevent overwhelming resources
     const batchSize = 1; 
@@ -132,81 +132,68 @@ app.post('/search', async (req, res, next) => {
       throw new Error('Global search operation timed out');
     }, GLOBAL_TIMEOUT);
 
+    // Batch search terms and process
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
       // Add more aggressive timeout checking
       if (Date.now() - startTime > GLOBAL_TIMEOUT) {
         throw new Error('Search operation exceeded maximum time limit');
       }
 
-      const batchStartTime = Date.now();
       const startIndex = batchIndex * batchSize;
       const batch = searchTerms.slice(startIndex, startIndex + batchSize);
       
       console.log(`[${searchId}] Starting batch ${batchIndex + 1}/${totalBatches}`);
-      console.log(`[${searchId}] Batch terms:`, batch.map(t => t.term));
-
-      const batchPromises = batch.map(async searchTerm => {
-        const termStartTime = Date.now();
-        try {
-          const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
-          console.log(`[${searchId}] Starting search for "${term}"`);
-          
-          // Limit search depth and add timeout to individual term search
-          const termResultPromise = scraper.scrapeSearchResults(
-            term, 
-            minPrice, 
-            maxPrice, 
-            '23000', 
-            3 // Reduced from 5 to 3 pages
-          );
-
-          // Add individual term search timeout
-          const termSearchTimeout = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Timeout searching term: ${term}`)), 60000)
-          );
-
-          const termResults = await Promise.race([
-            termResultPromise, 
-            termSearchTimeout
-          ]);
-          
-          const duration = ((Date.now() - termStartTime) / 1000).toFixed(2);
-          console.log(`[${searchId}] Completed "${term}" in ${duration}s with ${termResults.length} results`);
-          
-          if (termResults.length > 0) {
-            hasPartialSuccess = true;
-          }
-          return termResults;
-        } catch (termError) {
-          console.error(`[${searchId}] Error searching "${searchTerm.term}":`, termError);
-          errors.push({
-            term: searchTerm.term,
-            error: termError.message,
-            time: new Date().toISOString()
-          });
-          return [];
-        }
-      });
-
-      try {
-        const batchResults = await Promise.all(batchPromises);
-        const validResults = batchResults.flat().filter(Boolean);
-        results.push(...validResults);
+      
+      // Process each search term in the batch
+      for (const searchTerm of batch) {
+        const { term = '', minPrice = '', maxPrice = '' } = searchTerm;
+        console.log(`[${searchId}] Starting search for "${term}"`);
         
-        const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(2);
-        console.log(`[${searchId}] Batch ${batchIndex + 1} completed in ${batchDuration}s`);
-        console.log(`[${searchId}] Total results so far: ${results.length}`);
+        // Perform search and get file path
+        const searchResultFile = await scraper.scrapeSearchResults(
+          term, 
+          minPrice, 
+          maxPrice, 
+          '23000', 
+          3 // Reduced from 5 to 3 pages
+        );
 
-        // Increase delay between batches to reduce server load
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      } catch (batchError) {
-        console.error(`[${searchId}] Batch ${batchIndex + 1} failed:`, batchError);
-        errors.push({
-          batch: batchIndex + 1,
-          error: batchError.message,
-          time: new Date().toISOString()
-        });
-        continue;
+        if (searchResultFile) {
+          searchResultFiles.push(searchResultFile);
+        }
+      }
+    }
+
+    // Read and process search result files
+    const results = [];
+    let totalResults = 0;
+    let searchMetadata = null;
+
+    for (const filePath of searchResultFiles) {
+      try {
+        // Read file line by line
+        const fileContents = fs.readFileSync(filePath, 'utf8');
+        const lines = fileContents.split('\n').filter(line => line.trim() !== '');
+        
+        // First line is metadata
+        if (lines.length > 0) {
+          searchMetadata = JSON.parse(lines[0]);
+          
+          // Parse product lines
+          for (let i = 1; i < lines.length; i++) {
+            try {
+              const product = JSON.parse(lines[i]);
+              results.push(product);
+            } catch (parseError) {
+              console.error('Error parsing product line:', parseError);
+            }
+          }
+        }
+
+        // Delete the temporary file
+        fs.unlinkSync(filePath);
+      } catch (fileError) {
+        console.error('Error processing search result file:', fileError);
       }
     }
 
@@ -215,32 +202,23 @@ app.post('/search', async (req, res, next) => {
 
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[${searchId}] === Search completed in ${totalDuration}s ===`);
-    console.log(`[${searchId}] Final results: ${results.length}, Errors: ${errors.length}`);
 
     // Pagination logic
-    const totalResults = results.length;
+    totalResults = results.length;
     const startIndex = (page - 1) * pageSize;
     const paginatedResults = results.slice(startIndex, startIndex + pageSize);
 
-    if (paginatedResults.length > 0 || hasPartialSuccess) {
-      res.header('Access-Control-Allow-Origin', req.headers.origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.json({
-        success: true,
-        results: paginatedResults,
-        count: paginatedResults.length,
-        totalResults,
-        currentPage: page,
-        totalPages: Math.ceil(totalResults / pageSize),
-        errors: errors.length > 0 ? errors : undefined,
-        isPartialResult: errors.length > 0,
-        duration: totalDuration,
-        searchedTerms: searchTerms.length,
-        successfulSearches: searchTerms.length - errors.length
-      });
-    } else {
-      throw new Error(errors.map(e => `${e.term || `Batch ${e.batch}`}: ${e.error}`).join('; '));
-    }
+    res.json({
+      success: true,
+      results: paginatedResults,
+      count: paginatedResults.length,
+      totalResults,
+      currentPage: page,
+      totalPages: Math.ceil(totalResults / pageSize),
+      duration: totalDuration,
+      searchedTerms: searchTerms.length,
+      metadata: searchMetadata
+    });
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.error(`[${searchId}] Fatal error after ${duration}s:`, error);
