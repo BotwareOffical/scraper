@@ -164,8 +164,8 @@ class BuyeeScraper {
           console.log(`Navigating to URL: ${productUrl}`);
           
           await productPage.goto(productUrl, {
-            waitUntil: 'load',
-            timeout: 45000
+            waitUntil: 'domcontentloaded',
+            timeout: 25000
           });
   
           await productPage.waitForTimeout(3000);
