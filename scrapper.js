@@ -295,37 +295,7 @@ async removeFinishedAuctions(finishedUrls) {
   }
 }
 
-async placeBid(productUrl, bidAmount) {
-  const browser = await chromium.launch({
-    headless: true,  // Must be true for Heroku
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const context = await browser.newContext({ storageState: "login.json" });
-
-  try {
-    const page = await context.newPage();
-    
-    // Add navigation timeout and wait until network is idle
-    await page.goto(productUrl, {
-      waitUntil: 'networkidle',
-      timeout: 60000
-    });
-
-    // Wait for page to load
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
-
-    // Check if the "Bid Now" button exists with better error handling
-    const bidNowButton = page.locator("#bidNow");
-    const bidButtonExists = await bidNowButton.count();
-    
-    if (!bidButtonExists) {
-      console.warn('No "Bid Now" button found on the page');
-      return {
-        success: false,
-        message: 'No "Bid Now" button found on the page',
-      };
-    }
+waitForLoadState
 
     // Extract product details including time remaining inside the evaluate
     const productDetails = await page.evaluate(() => {
