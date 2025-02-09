@@ -313,73 +313,92 @@ class BuyeeScraper {
         return false;
     }
   }
+  YOUR_EMAIL = "teege@machen-sachen.com"
+  YOUR_PASSWORD = "&7.s!M47&zprEv."
+  async refreshLoginSession() {
+    const loginResult = await this.login('YOUR_EMAIL', 'YOUR_PASSWORD');
+    if (loginResult.success) {
+      console.log('Login session refreshed successfully');
+    } else {
+      throw new Error('Failed to refresh login session');
+    }
+  }
 
   // Update bid prices
-  async updateBid(productUrl) {
-    const browser = await chromium.launch({ 
-      headless: true, 
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+  async placeBid(productUrl, bidAmount) {
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
     });
-    const context = await browser.newContext({ storageState: "login.json" });
-
+  
     try {
-      const page = await context.newPage();
-      await page.goto(productUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 300000
+      const context = await browser.newContext({
+        storageState: "login.json", // Ensure we use the saved login session
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
-
-      // Extract price with multiple selectors
-      let price = 'Price Not Available';
-      const priceElements = [
-        page.locator('.current_price .price'),
-        page.locator('.price'),
-        page.locator('.itemPrice')
-      ];
-
-      for (const priceElement of priceElements) {
-        try {
-          const priceText = await priceElement.textContent();
-          if (priceText) {
-            price = priceText.trim();
-            break;
-          }
-        } catch {}
+  
+      const page = await context.newPage();
+      page.setDefaultTimeout(60000);
+      page.setDefaultNavigationTimeout(60000);
+  
+      // Log cookies for debugging
+      const cookies = await context.cookies();
+      console.log('Cookies before navigating to product page:', cookies);
+  
+      // Navigate to the product page
+      console.log('Navigating to product page:', productUrl);
+      await page.goto(productUrl, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(2000); // Wait for the page to load
+  
+      // Check if we are logged in
+      const currentUrl = page.url();
+      console.log('Current URL after navigation:', currentUrl);
+      if (currentUrl.includes('signup/login')) {
+        throw new Error('Login session expired or not logged in');
       }
-
-      // Extract time remaining with multiple selectors
-      let timeRemaining = 'Time Not Available';
-      const timeRemainingElements = [
-        page.locator('.itemInformation__infoItem .g-text--attention'),
-        page.locator('.itemInfo__time span'),
-        page.locator('.timeLeft'),
-        page.locator('.g-text--attention')
-      ];
-
-      for (const timeElement of timeRemainingElements) {
-        try {
-          const timeText = await timeElement.textContent();
-          if (timeText) {
-            timeRemaining = timeText.trim();
-            break;
-          }
-        } catch {}
+      if (await this.checkLoginState() === false) {
+        await this.refreshLoginSession();
       }
-
-      return {
-        productUrl,
-        price: price.trim(),
-        timeRemaining: timeRemaining.trim()
-      };
+      // Click the bid button
+      console.log('Looking for bid button...');
+      const bidButton = page.locator('#bidNow');
+      await bidButton.waitFor({ state: 'visible', timeout: 20000 });
+      console.log('Bid button found, clicking...');
+      await bidButton.click();
+      await page.waitForTimeout(5000); // Wait for the bid form to load
+  
+      // Check if we are redirected to the login page
+      const newUrl = page.url();
+      console.log('Current URL after clicking bid button:', newUrl);
+      if (newUrl.includes('signup/login')) {
+        throw new Error('Redirected to login page after clicking bid button');
+      }
+  
+      // Proceed with filling out the bid form
+      console.log('Proceeding with bid...');
+      const bidPage = page;
+      await bidPage.fill('#bidYahoo_price', bidAmount.toString());
+      await bidPage.selectOption('#bidYahoo_plan', '99');
+      await bidPage.check('#bidYahoo_payment_method_type_2');
+      await bidPage.click('#bid_submit');
+      await bidPage.waitForTimeout(3000); // Wait for the bid to be processed
+  
+      console.log('Bid placed successfully!');
+      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
+  
     } catch (error) {
-      console.error("Error during bid update:", error);
-      return {
-        productUrl,
-        error: error.message
-      };
+      console.error('Bid placement error:', error);
+      return { success: false, message: error.message || 'Failed to place bid' };
     } finally {
-      await context.close();
-      await browser.close();
+      if (browser) {
+        await browser.close();
+      }
     }
   }
 
@@ -428,8 +447,14 @@ class BuyeeScraper {
         return { success: false, requiresTwoFactor: true };
       }
   
-      // If no 2FA required, complete the login process
+      // Save the final login state
       await context.storageState({ path: "login.json" });
+      console.log('Login session saved to login.json');
+  
+      // Log cookies for debugging
+      const cookies = await context.cookies();
+      console.log('Cookies after login:', cookies);
+  
       return { success: true };
   
     } catch (error) {
