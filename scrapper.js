@@ -164,6 +164,7 @@ class BuyeeScraper {
     });
 
     try {
+        // Create context with stored login state
         const context = await browser.newContext({
             storageState: "login.json",
             viewport: { width: 1280, height: 720 },
@@ -174,109 +175,99 @@ class BuyeeScraper {
         page.setDefaultTimeout(60000);
         page.setDefaultNavigationTimeout(60000);
 
-        console.log('Attempting to navigate to:', productUrl);
+        // First verify login state by visiting the main page
+        console.log('Verifying login state...');
+        await page.goto('https://buyee.jp', { waitUntil: 'networkidle' });
+        
+        const isLoggedIn = await page.evaluate(() => {
+            return document.cookie.includes('otherbuyee') || 
+                   document.cookie.includes('userProfile');
+        });
+        console.log('Initial login state:', isLoggedIn);
+
+        if (!isLoggedIn) {
+            console.log('Need to refresh login, loading stored credentials...');
+            try {
+                // Read credentials from login.json
+                const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+                const cookies = loginData.cookies || [];
+                console.log('Found stored cookies:', cookies.length);
+                
+                // Set cookies directly
+                for (const cookie of cookies) {
+                    await context.addCookies([cookie]);
+                }
+                
+                // Verify cookies were set
+                const newCookies = await context.cookies();
+                console.log('Cookies after setting:', newCookies.length);
+                
+            } catch (error) {
+                console.error('Error loading stored credentials:', error);
+                throw new Error('Login required');
+            }
+        }
+
+        // Navigate to product page
+        console.log('Navigating to product page...');
         await page.goto(productUrl, { waitUntil: 'networkidle' });
         await page.waitForTimeout(2000);
 
-        // Check login state
-        const cookies = await context.cookies();
-        const isLoggedIn = cookies.some(cookie => 
-            cookie.name === 'otherbuyee' && !cookie.expired
-        );
-        console.log('Login state:', isLoggedIn);
-
-        // Click bid button
+        // Click bid button and handle new window/frame
         console.log('Looking for bid button...');
         const bidButton = page.locator('#bidNow');
         await bidButton.waitFor({ state: 'visible', timeout: 20000 });
-        console.log('Found bid button, clicking...');
-        await bidButton.click();
         
-        // Wait for a moment after clicking
+        // Create a promise to capture new page/frame
+        const popupPromise = context.waitForEvent('page', { timeout: 10000 }).catch(() => null);
+        const framePromise = page.waitForEvent('framenavigated', { timeout: 10000 }).catch(() => null);
+        
+        console.log('Clicking bid button...');
+        await bidButton.click();
         await page.waitForTimeout(3000);
 
-        // Log frames
-        const frames = page.frames();
-        console.log('Number of frames:', frames.length);
-        for (const frame of frames) {
-            console.log('Frame URL:', frame.url());
-        }
+        // Check for popup or frame
+        const popup = await popupPromise;
+        const frame = await framePromise;
+        
+        // Determine which context to use
+        const bidContext = popup || frame || page;
+        console.log('Bid context type:', popup ? 'popup' : frame ? 'frame' : 'main page');
 
-        // Log page content after click
-        console.log('Page content after click:');
-        const content = await page.content();
-        console.log(content.substring(0, 1000));
+        // Wait for and fill bid form
+        console.log('Looking for bid form...');
+        const bidInput = bidContext.locator('input[name="bidYahoo[price]"]');
+        await bidInput.waitFor({ state: 'visible', timeout: 20000 });
 
-        // Look for bid form in all possible locations
-        let bidInput = null;
-        let bidForm = null;
-
-        // First try main page
-        console.log('Checking main page for bid form...');
-        if (await page.locator('input[name="bidYahoo[price]"]').count() > 0) {
-            bidInput = page.locator('input[name="bidYahoo[price]"]');
-            console.log('Found bid form in main page');
-        }
-
-        // Then check each frame
-        if (!bidInput) {
-            console.log('Checking frames for bid form...');
-            for (const frame of frames) {
-                try {
-                    if (await frame.locator('input[name="bidYahoo[price]"]').count() > 0) {
-                        bidInput = frame.locator('input[name="bidYahoo[price]"]');
-                        console.log('Found bid form in frame:', frame.url());
-                        break;
-                    }
-                } catch (e) {
-                    console.log('Error checking frame:', e.message);
-                }
-            }
-        }
-
-        if (!bidInput) {
-            console.log('Could not find bid form, looking for alternative selectors...');
-            // Try alternative selectors
-            const selectors = [
-                '#bidYahoo_price',
-                'input[type="text"].bid-amount',
-                '.bid-form input[type="text"]',
-                'input[type="text"]'
-            ];
-
-            for (const selector of selectors) {
-                if (await page.locator(selector).count() > 0) {
-                    bidInput = page.locator(selector);
-                    console.log('Found alternative bid input with selector:', selector);
-                    break;
-                }
-            }
-        }
-
-        if (!bidInput) {
-            throw new Error('Bid form not found after extensive search');
-        }
-
-        // Fill bid amount
         console.log('Filling bid amount:', bidAmount);
         await bidInput.click();
         await page.waitForTimeout(500);
         await bidInput.fill('');
         await page.waitForTimeout(500);
-        await bidInput.type(bidAmount.toString(), { delay: 100 });
+        await bidInput.fill(bidAmount.toString());
         await page.waitForTimeout(1000);
 
         // Handle plan selection
-        const planSelector = page.locator('select[name="bidYahoo[plan]"]');
+        const planSelector = bidContext.locator('select[name="bidYahoo[plan]"]');
         if (await planSelector.count() > 0) {
             await planSelector.selectOption('99');
             await page.waitForTimeout(1000);
         }
 
         // Submit bid
-        const submitButton = page.locator('#bid_submit');
+        const submitButton = bidContext.locator('#bid_submit');
         await submitButton.click();
         await page.waitForTimeout(3000);
+
+        // Check for success/error
+        const errorMessage = await bidContext.evaluate(() => {
+            const errorEl = document.querySelector('.error-message, .alert-error, .bid-error');
+            return errorEl ? errorEl.textContent : null;
+        });
+
+        if (errorMessage) {
+            throw new Error(`Bid error: ${errorMessage}`);
+        }
 
         return {
             success: true,
