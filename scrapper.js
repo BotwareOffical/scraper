@@ -169,6 +169,9 @@ class BuyeeScraper {
             timeout: 30000
           });
   
+          // Wait for the main image to load
+          await productPage.waitForSelector('.itemPhoto img, .itemImg img', { timeout: 10000 });
+  
           // Extract product details
           const productDetails = await productPage.evaluate(() => {
             const getElement = (selectors) => {
@@ -183,25 +186,31 @@ class BuyeeScraper {
             const price = getElement(['.current_price .price', '.price', '.itemPrice', '.current_price .g-text--attention']) || 'Price Not Available';
             const time_remaining = getElement(['.itemInformation__infoItem .g-text--attention', '.itemInfo__time span', '.timeLeft', '.g-text--attention', '.itemInformation .g-text']) || 'Time Not Available';
   
-            const thumbnailSelectors = ['.flexslider .slides img', '.flex-control-nav .slides img', '.itemImg img', '.mainImage img', '.g-thumbnail__image', '.itemPhoto img', 'img.primary-image'];
-            let thumbnailUrl = null;
-            for (const selector of thumbnailSelectors) {
-              const img = document.querySelector(selector);
-              if (img) {
-                thumbnailUrl = img.src || img.getAttribute('data-src') || img.getAttribute('data-original');
-                if (thumbnailUrl) {
-                  thumbnailUrl = thumbnailUrl.split('?')[0];
-                  break;
-                }
+            // Image extraction
+            const images = [];
+            const mainImage = document.querySelector('.itemPhoto img, .itemImg img');
+            if (mainImage) {
+              const src = mainImage.src || mainImage.getAttribute('data-src');
+              if (src && !src.includes('loading-spacer.gif')) {
+                images.push(src.split('?')[0]);
               }
             }
+  
+            // Try to get additional images
+            const additionalImages = document.querySelectorAll('.flex-control-nav li img');
+            additionalImages.forEach(img => {
+              const src = img.src || img.getAttribute('data-src');
+              if (src && !src.includes('loading-spacer.gif') && !images.includes(src.split('?')[0])) {
+                images.push(src.split('?')[0]);
+              }
+            });
   
             return {
               title,
               price,
               time_remaining,
               url: window.location.href,
-              images: thumbnailUrl ? [thumbnailUrl] : []
+              images
             };
           });
   
