@@ -16,17 +16,44 @@ class BuyeeScraper {
       if (!this.browser || !this.browser.isConnected()) {
         this.browser = await chromium.launch({
           headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
+          ]
         });
       }
       
+      // Load stored login state
+      const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+      
+      // Create context with stored state
       const context = await this.browser.newContext({
-        storageState: "login.json", // Use the stored login session
         viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        locale: 'en-US',
+        timezoneId: 'Europe/Berlin',
+        storageState: 'login.json',
+        acceptDownloads: true
       });
       
-      console.log('Browser context created');
+      // Add cookies explicitly
+      for (const cookie of loginData.cookies) {
+        await context.addCookies([{
+          ...cookie,
+          secure: cookie.secure || false,
+          httpOnly: cookie.httpOnly || false,
+          sameSite: cookie.sameSite || 'Lax',
+          expires: cookie.expires || (Date.now() / 1000 + 86400)
+        }]);
+      }
+      
+      // Log the setup
+      const cookies = await context.cookies();
+      console.log('Browser context created with cookies:', 
+        cookies.map(c => `${c.name}=${c.value}`).join('; '));
+      
       return { browser: this.browser, context };
     } catch (error) {
       console.error('Browser setup failed:', error);
@@ -171,12 +198,30 @@ class BuyeeScraper {
       ({ context } = await this.setupBrowser());
       page = await context.newPage();
   
-      // Log all navigations and redirects
+      // Enable verbose network logging
+      page.on('request', request => {
+        console.log(`>> ${request.method()} ${request.url()}`);
+        console.log('Request headers:', request.headers());
+      });
+  
       page.on('response', response => {
-        console.log(`Response: ${response.status()} ${response.url()}`);
+        console.log(`<< ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
-          console.log('Redirect detected to:', response.headers()['location']);
+          console.log('Redirect headers:', response.headers());
         }
+      });
+  
+      // Set extra headers to mimic browser better
+      await context.setExtraHTTPHeaders({
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
       });
   
       console.log('Navigating to:', productUrl);
@@ -185,17 +230,15 @@ class BuyeeScraper {
         timeout: 60000 
       });
   
-      // Check if we landed on login page
-      if (page.url().includes('signup/login')) {
-        console.log('Initial navigation redirected to login page');
-        throw new Error('Session invalid - login required');
-      }
+      console.log('Current URL after navigation:', page.url());
+      console.log('Current cookies:', await context.cookies());
   
-      // Remove any overlays that might block clicking
+      // Remove any overlays and wait a bit
       await page.evaluate(() => {
         const elements = document.querySelectorAll('.overlay, .cookie-banner');
         elements.forEach(el => el.remove());
       });
+      await page.waitForTimeout(2000);
   
       // Wait for and click bid button
       console.log('Waiting for bid button...');
@@ -207,60 +250,86 @@ class BuyeeScraper {
       // Take screenshot before clicking
       await page.screenshot({ path: 'pre-bid-click.png' });
       
+      // Click without using Promise.all to better track the navigation
       console.log('Clicking bid button...');
-      await Promise.all([
-        page.waitForNavigation({ timeout: 30000 }),
-        bidButton.click()
-      ]);
+      await bidButton.click();
+      
+      // Wait for either form or navigation
+      console.log('Waiting for post-click result...');
+      try {
+        await Promise.race([
+          page.waitForSelector('.bidInput__main', { timeout: 10000 }),
+          page.waitForSelector('.modal-body', { timeout: 10000 }),
+          page.waitForNavigation({ timeout: 10000 })
+        ]);
+      } catch (e) {
+        console.log('Timeout waiting for post-click result:', e.message);
+      }
   
-      // Take screenshot after navigation
+      // Take screenshot after click
       await page.screenshot({ path: 'post-bid-click.png' });
       
-      console.log('Post-click URL:', page.url());
+      console.log('Current URL after bid click:', page.url());
+      console.log('Current page content:', await page.content());
   
-      // Check if click redirected us to login
       if (page.url().includes('signup/login')) {
-        console.log('Bid button click redirected to login page');
         throw new Error('Session expired during bid');
       }
   
-      // Wait for bid form
-      console.log('Waiting for bid form...');
-      const formLocator = '.bidInput__main #bidYahoo_price, .modal-body #bidYahoo_price';
-      await page.waitForSelector(formLocator, { 
-        timeout: 30000,
-        state: 'visible'
-      });
+      // Try to detect what happened after the click
+      const formExists = await Promise.race([
+        page.waitForSelector('.bidInput__main', { timeout: 5000 })
+          .then(() => 'main-form'),
+        page.waitForSelector('.modal-body', { timeout: 5000 })
+          .then(() => 'modal-form'),
+        new Promise(resolve => setTimeout(() => resolve('timeout'), 5000))
+      ]);
+  
+      console.log('Form detection result:', formExists);
+  
+      if (formExists === 'timeout') {
+        throw new Error('Could not detect bid form after button click');
+      }
   
       // Fill the form
       console.log('Filling bid form...');
       await page.evaluate((amount) => {
         const priceInput = document.querySelector('#bidYahoo_price');
-        if (priceInput) {
-          priceInput.value = amount.toString();
-          priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        if (!priceInput) throw new Error('Price input not found');
+        
+        priceInput.value = amount.toString();
+        priceInput.dispatchEvent(new Event('input', { bubbles: true }));
   
         const planSelect = document.querySelector('#bidYahoo_plan');
-        if (planSelect) {
-          planSelect.value = '99';
-          planSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        if (!planSelect) throw new Error('Plan select not found');
+        
+        planSelect.value = '99';
+        planSelect.dispatchEvent(new Event('change', { bubbles: true }));
   
         const paymentRadio = document.querySelector('#bidYahoo_payment_method_type_2');
-        if (paymentRadio && !paymentRadio.checked) {
+        if (!paymentRadio) throw new Error('Payment radio not found');
+        
+        if (!paymentRadio.checked) {
           paymentRadio.click();
         }
       }, bidAmount);
   
+      await page.waitForTimeout(1000);
+  
       // Submit the bid
+      console.log('Looking for submit button...');
+      const submitButton = await page.waitForSelector('#bid_submit', { timeout: 5000 });
+      
       console.log('Submitting bid...');
       const [response] = await Promise.all([
         page.waitForNavigation({ timeout: 30000 }),
-        page.click('#bid_submit')
+        submitButton.click()
       ]);
   
-      if (response.url().includes('/bid/confirm')) {
+      console.log('Post-submit URL:', page.url());
+      await page.screenshot({ path: 'post-submit.png' });
+  
+      if (page.url().includes('/bid/confirm')) {
         console.log('Bid confirmed successfully');
         return { success: true, message: `Bid of ${bidAmount} placed successfully` };
       }
@@ -269,22 +338,30 @@ class BuyeeScraper {
   
     } catch (error) {
       console.error('Bid placement failed:', error);
+      
+      // Take error screenshot
       await page?.screenshot({ path: 'bid-error.png' });
+  
+      // Get additional debug info
+      const debugInfo = {
+        url: page?.url(),
+        cookies: await context?.cookies(),
+        content: await page?.content().catch(() => 'Could not get content')
+      };
+      
+      console.log('Debug info:', debugInfo);
       
       return { 
         success: false, 
         message: `Bid failed: ${error.message}`,
-        debug: {
-          url: page?.url(),
-          cookies: await context?.cookies()
-        }
+        debug: debugInfo
       };
     } finally {
       if (page) await page.close();
       if (context) await context.close();
     }
   }
-  
+
   // Add retry utility
   async retry(fn, retries = 3) {
     for (let i = 0; i < retries; i++) {
