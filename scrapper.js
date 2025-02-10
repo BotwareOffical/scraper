@@ -7,25 +7,27 @@ const bidFilePath = path.resolve(__dirname, "../bids.json");
 class BuyeeScraper {
   constructor() {
     this.baseUrl = "https://buyee.jp";
+    this.browser = null;
   }
 
   // Setup browser and context
   async setupBrowser() {
     try {
+      if (!this.browser) {
+        this.browser = await chromium.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+      }
       
-      // Basic Linux-compatible configuration
-      const browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-            
-      const context = await browser.newContext({
+      const context = await this.browser.newContext({
+        storageState: "login.json", // Use the stored login session
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
       
       console.log('Browser context created');
-      return { browser, context };
+      return { browser: this.browser, context };
     } catch (error) {
       console.error('Browser setup failed:', error);
       throw error;
@@ -164,33 +166,13 @@ class BuyeeScraper {
       }
     }
   
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-web-security'
-      ]
-    });
-  
-    let page;
     let context;
+    let page;
   
     try {
-      context = await browser.newContext({
-        storageState: "login.json",
-        viewport: { width: 1920, height: 1080 },
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-      });
-  
-      await context.setExtraHTTPHeaders({
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': productUrl,
-        'Priority': 'u=0, i'
-      });
-  
+      ({ context } = await this.setupBrowser());
       page = await context.newPage();
-      
+  
       page.on('response', response => {
         console.log(`<< ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
@@ -201,7 +183,6 @@ class BuyeeScraper {
       console.log('Navigating to:', productUrl);
       await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
   
-      // Check if redirected to login page
       if (page.url().includes('signup/login')) {
         console.log('Redirected to login page. Attempting to log in again...');
         await this.refreshLoginSession();
@@ -262,8 +243,64 @@ class BuyeeScraper {
         }
       };
     } finally {
-      if (context) await context.close();
-      if (browser) await browser.close();
+      if (page) await page.close();
+    }
+  }
+  
+  async login(username, password) {
+    let context;
+    let page;
+  
+    try {
+      ({ context } = await this.setupBrowser());
+      page = await context.newPage();
+      
+      console.log('Starting login process...');
+      
+      await page.goto("https://buyee.jp/signup/login", {
+        waitUntil: 'networkidle',
+        timeout: 30000
+      });
+  
+      console.log('Filling login form...');
+      await page.fill('#login_mailAddress', username);
+      await page.waitForTimeout(500);
+      await page.fill('#login_password', password);
+      await page.waitForTimeout(500);
+  
+      const form = await page.$('#login_form');
+      if (!form) {
+        throw new Error('Login form not found');
+      }
+  
+      console.log('Submitting login form...');
+      await page.evaluate(() => {
+        document.querySelector('#login_submit').click();
+      });
+  
+      await page.waitForNavigation({ timeout: 30000 });
+      console.log('Post-login URL:', page.url());
+  
+      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
+        console.log('Two-factor authentication required');
+        await context.storageState({ path: "temp_login.json" });
+        return { success: false, requiresTwoFactor: true };
+      }
+  
+      await context.storageState({ path: "login.json" });
+      console.log('Login session saved to login.json');
+  
+      const cookies = await context.cookies();
+      console.log('Cookies after login:', JSON.stringify(cookies, null, 2));
+  
+      return { success: true };
+  
+    } catch (error) {
+      console.error('Login error:', error);
+      await page?.screenshot({ path: 'login-error.png' });
+      throw error;
+    } finally {
+      if (page) await page.close();
     }
   }
 
