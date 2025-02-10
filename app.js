@@ -58,40 +58,34 @@ const scraper = new BuyeeScraper();
 app.post('/place-bid', async (req, res) => {
   try {
     console.log('Received bid request data:', req.body);
-
     const { productId: productUrl, amount: bidAmount } = req.body;
 
-    console.log('Bid Details:');
-    console.log(`Product URL: ${productUrl}`);
-    console.log(`Bid Amount: ${bidAmount}`);
-
     if (!productUrl || !bidAmount || isNaN(bidAmount) || bidAmount <= 0) {
-      console.warn('Invalid product URL or bid amount');
       return res.status(400).json({
         success: false,
         message: 'Product URL must be valid, and bid amount must be a positive number',
       });
     }
 
-    // Call the scraper's placeBid method
     const response = await scraper.placeBid(productUrl, bidAmount);
-
+    
     if (!response.success) {
       return res.status(400).json(response);
     }
 
     const updatedBids = JSON.parse(fs.readFileSync(bidFilePath, 'utf8'));
-
     res.json({
       success: true,
       message: response.message,
       updatedBids,
     });
+    
   } catch (error) {
     console.error('Bid placement error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to place the bid. Please try again.',
+      error: error.message
     });
   }
 });

@@ -153,68 +153,107 @@ class BuyeeScraper {
   }
   
   async placeBid(productUrl, bidAmount) {
-    let isLoggedIn = await this.checkLoginState();
-    if (!isLoggedIn) {
-      console.log('Session expired - refreshing login');
-      await this.refreshLoginSession();
-      isLoggedIn = await this.checkLoginState();
-      if (!isLoggedIn) {
-        throw new Error('Failed to refresh login session');
-      }
-    }
-  
     let context;
     let page;
   
     try {
+      // First verify login state
+      let isLoggedIn = await this.checkLoginState();
+      if (!isLoggedIn) {
+        console.log('Session expired - refreshing login');
+        await this.refreshLoginSession();
+        isLoggedIn = await this.checkLoginState();
+        if (!isLoggedIn) {
+          throw new Error('Failed to refresh login session');
+        }
+      }
+  
       ({ context } = await this.setupBrowser());
       page = await context.newPage();
   
+      // Log all navigations and redirects
       page.on('response', response => {
-        console.log(`<< ${response.status()} ${response.url()}`);
+        console.log(`Response: ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
-          console.log('Redirect detected to:', response.headers().location);
+          console.log('Redirect detected to:', response.headers()['location']);
         }
       });
   
       console.log('Navigating to:', productUrl);
-      await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
+      await page.goto(productUrl, { 
+        waitUntil: 'networkidle',
+        timeout: 60000 
+      });
   
+      // Check if we landed on login page
       if (page.url().includes('signup/login')) {
-        console.log('Redirected to login page. Attempting to log in again...');
-        await this.refreshLoginSession();
-        await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
+        console.log('Initial navigation redirected to login page');
+        throw new Error('Session invalid - login required');
       }
   
+      // Remove any overlays that might block clicking
       await page.evaluate(() => {
         const elements = document.querySelectorAll('.overlay, .cookie-banner');
         elements.forEach(el => el.remove());
       });
   
-      console.log('Clicking bid button...');
-      const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
-      await bidButton.click();
+      // Wait for and click bid button
+      console.log('Waiting for bid button...');
+      const bidButton = await page.waitForSelector('#bidNow', { 
+        timeout: 30000,
+        state: 'visible' 
+      });
+  
+      // Take screenshot before clicking
+      await page.screenshot({ path: 'pre-bid-click.png' });
       
-      console.log('Waiting for bid form...');
-      try {
-        await page.waitForSelector('.modal-body #bidYahoo_price', { 
-          timeout: 10000,
-          state: 'visible' 
-        });
-        console.log('Found modal-based bid form');
-      } catch {
-        await page.waitForSelector('#bid_form', { timeout: 10000 });
-        console.log('Found standard bid form');
+      console.log('Clicking bid button...');
+      await Promise.all([
+        page.waitForNavigation({ timeout: 30000 }),
+        bidButton.click()
+      ]);
+  
+      // Take screenshot after navigation
+      await page.screenshot({ path: 'post-bid-click.png' });
+      
+      console.log('Post-click URL:', page.url());
+  
+      // Check if click redirected us to login
+      if (page.url().includes('signup/login')) {
+        console.log('Bid button click redirected to login page');
+        throw new Error('Session expired during bid');
       }
   
-      await page.screenshot({ path: 'bid-form-loaded.png' });
+      // Wait for bid form
+      console.log('Waiting for bid form...');
+      const formLocator = '.bidInput__main #bidYahoo_price, .modal-body #bidYahoo_price';
+      await page.waitForSelector(formLocator, { 
+        timeout: 30000,
+        state: 'visible'
+      });
   
-      await this.retry(async () => {
-        await page.fill('#bidYahoo_price', bidAmount.toString());
-        await page.selectOption('#bidYahoo_plan', '99');
-        await page.check('#bidYahoo_payment_method_type_2');
-      }, 3);
+      // Fill the form
+      console.log('Filling bid form...');
+      await page.evaluate((amount) => {
+        const priceInput = document.querySelector('#bidYahoo_price');
+        if (priceInput) {
+          priceInput.value = amount.toString();
+          priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
   
+        const planSelect = document.querySelector('#bidYahoo_plan');
+        if (planSelect) {
+          planSelect.value = '99';
+          planSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+  
+        const paymentRadio = document.querySelector('#bidYahoo_payment_method_type_2');
+        if (paymentRadio && !paymentRadio.checked) {
+          paymentRadio.click();
+        }
+      }, bidAmount);
+  
+      // Submit the bid
       console.log('Submitting bid...');
       const [response] = await Promise.all([
         page.waitForNavigation({ timeout: 30000 }),
@@ -223,14 +262,15 @@ class BuyeeScraper {
   
       if (response.url().includes('/bid/confirm')) {
         console.log('Bid confirmed successfully');
-        return { success: true, message: `Bid of ${bidAmount} placed` };
+        return { success: true, message: `Bid of ${bidAmount} placed successfully` };
       }
   
       throw new Error('Bid confirmation page not reached');
   
     } catch (error) {
+      console.error('Bid placement failed:', error);
       await page?.screenshot({ path: 'bid-error.png' });
-      console.error('Bid failure:', error);
+      
       return { 
         success: false, 
         message: `Bid failed: ${error.message}`,
@@ -244,7 +284,7 @@ class BuyeeScraper {
       if (context) await context.close();
     }
   }
-
+  
   // Add retry utility
   async retry(fn, retries = 3) {
     for (let i = 0; i < retries; i++) {
