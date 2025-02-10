@@ -154,11 +154,14 @@ class BuyeeScraper {
 
   // scrapper.js (updated)
   async placeBid(productUrl, bidAmount) {
-    // Check session validity first
-    const isLoggedIn = await this.checkLoginState();
+    let isLoggedIn = await this.checkLoginState();
     if (!isLoggedIn) {
       console.log('Session expired - refreshing login');
       await this.refreshLoginSession();
+      isLoggedIn = await this.checkLoginState();
+      if (!isLoggedIn) {
+        throw new Error('Failed to refresh login session');
+      }
     }
   
     const browser = await chromium.launch({
@@ -180,7 +183,6 @@ class BuyeeScraper {
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
       });
   
-      // Set critical headers
       await context.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': productUrl,
@@ -189,7 +191,6 @@ class BuyeeScraper {
   
       page = await context.newPage();
       
-      // Debug: Log network activity
       page.on('response', response => {
         console.log(`<< ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
@@ -200,50 +201,48 @@ class BuyeeScraper {
       console.log('Navigating to:', productUrl);
       await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
   
-      // Remove potential overlays
+      // Check if redirected to login page
+      if (page.url().includes('signup/login')) {
+        console.log('Redirected to login page. Attempting to log in again...');
+        await this.refreshLoginSession();
+        await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
+      }
+  
       await page.evaluate(() => {
         const elements = document.querySelectorAll('.overlay, .cookie-banner');
         elements.forEach(el => el.remove());
       });
   
-      // Click bid button with enhanced handling
       console.log('Clicking bid button...');
       const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
       await bidButton.click();
       
-      // Wait for dynamic content (modal/form)
       console.log('Waiting for bid form...');
       try {
-        // First check for modal approach
         await page.waitForSelector('.modal-body #bidYahoo_price', { 
           timeout: 10000,
           state: 'visible' 
         });
         console.log('Found modal-based bid form');
       } catch {
-        // Fallback to direct form detection
         await page.waitForSelector('#bid_form', { timeout: 10000 });
         console.log('Found standard bid form');
       }
   
-      // Visual verification
       await page.screenshot({ path: 'bid-form-loaded.png' });
   
-      // Fill form with retry logic
       await this.retry(async () => {
         await page.fill('#bidYahoo_price', bidAmount.toString());
         await page.selectOption('#bidYahoo_plan', '99');
         await page.check('#bidYahoo_payment_method_type_2');
       }, 3);
   
-      // Submit and verify
       console.log('Submitting bid...');
       const [response] = await Promise.all([
         page.waitForNavigation({ timeout: 30000 }),
         page.click('#bid_submit')
       ]);
   
-      // Verify success
       if (response.url().includes('/bid/confirm')) {
         console.log('Bid confirmed successfully');
         return { success: true, message: `Bid of ${bidAmount} placed` };
@@ -283,28 +282,26 @@ class BuyeeScraper {
   async checkLoginState() {
     try {
       const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
-      console.log('Login file exists');
+      console.log('Login file contents:', JSON.stringify(loginData, null, 2));
       
       const cookies = loginData.cookies || [];
-      const hasLoginCookie = cookies.some(cookie => 
-        (cookie.name === 'otherbuyee' || cookie.name === 'userProfile') && 
-        !cookie.expired
+      const requiredCookies = ['otherbuyee', 'userProfile', 'userId'];
+      
+      const hasAllRequiredCookies = requiredCookies.every(name => 
+        cookies.some(cookie => cookie.name === name && !cookie.expired)
       );
       
-      console.log('Has valid login cookie:', hasLoginCookie);
+      console.log('Has all required cookies:', hasAllRequiredCookies);
       console.log('Number of cookies:', cookies.length);
       
-      const requiredCookies = ['otherbuyee', 'userProfile', 'userId'];
-      const missingCookies = requiredCookies.filter(name => 
-        !cookies.some(cookie => cookie.name === name)
-      );
-      
-      if (missingCookies.length > 0) {
-        console.log('Missing required cookies:', missingCookies);
-        return false;
+      if (!hasAllRequiredCookies) {
+        const missingCookies = requiredCookies.filter(name => 
+          !cookies.some(cookie => cookie.name === name && !cookie.expired)
+        );
+        console.log('Missing or expired cookies:', missingCookies);
       }
       
-      return hasLoginCookie;
+      return hasAllRequiredCookies;
     } catch (error) {
       console.error('Error checking login state:', error);
       return false;
@@ -312,10 +309,13 @@ class BuyeeScraper {
   }
   
   async refreshLoginSession() {
+    console.log('Refreshing login session...');
     const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
     if (loginResult.success) {
       console.log('Login session refreshed successfully');
+      await this.checkLoginState(); // Verify the new session
     } else {
+      console.error('Failed to refresh login session');
       throw new Error('Failed to refresh login session');
     }
   }
@@ -410,6 +410,7 @@ class BuyeeScraper {
         timeout: 30000
       });
   
+      console.log('Filling login form...');
       await page.fill('#login_mailAddress', username);
       await page.waitForTimeout(500);
       await page.fill('#login_password', password);
@@ -420,27 +421,25 @@ class BuyeeScraper {
         throw new Error('Login form not found');
       }
   
+      console.log('Submitting login form...');
       await page.evaluate(() => {
         document.querySelector('#login_submit').click();
       });
   
       await page.waitForNavigation({ timeout: 30000 });
+      console.log('Post-login URL:', page.url());
   
-      // Check if we're redirected to the 2FA page
       if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
         console.log('Two-factor authentication required');
-        // Save the context for later use
         await context.storageState({ path: "temp_login.json" });
         return { success: false, requiresTwoFactor: true };
       }
   
-      // Save the final login state
       await context.storageState({ path: "login.json" });
       console.log('Login session saved to login.json');
   
-      // Log cookies for debugging
       const cookies = await context.cookies();
-      console.log('Cookies after login:', cookies);
+      console.log('Cookies after login:', JSON.stringify(cookies, null, 2));
   
       return { success: true };
   
@@ -448,11 +447,9 @@ class BuyeeScraper {
       console.error('Login error:', error);
       await page.screenshot({ path: 'login-error.png' });
       throw error;
-    } finally {
-      await browser.close();
     }
   }
-  
+    
   async submitTwoFactorCode(twoFactorCode) {
     const browser = await chromium.launch({ 
       headless: true,
