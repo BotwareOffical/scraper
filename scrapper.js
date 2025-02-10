@@ -62,8 +62,6 @@ class BuyeeScraper {
   }
 
   // Scrape search results and save to search.json
-// In scrapper.js - update the scrapeSearchResults method
-
   async scrapeSearchResults(term, minPrice = "", maxPrice = "", page = 1) {
     console.log(`Searching for "${term}" - Page ${page}`);
     
@@ -491,7 +489,7 @@ class BuyeeScraper {
       
       await page.goto("https://buyee.jp/signup/login", {
         waitUntil: 'networkidle',
-        timeout: 30000
+        timeout: 60000
       });
   
       console.log('Filling login form...');
@@ -500,32 +498,47 @@ class BuyeeScraper {
       await page.fill('#login_password', password);
       await page.waitForTimeout(500);
   
-      const form = await page.$('#login_form');
-      if (!form) {
-        throw new Error('Login form not found');
-      }
-  
-      console.log('Submitting login form...');
-      await page.evaluate(() => {
-        document.querySelector('#login_submit').click();
+      // Setup navigation promise before clicking
+      const navigationPromise = page.waitForNavigation({
+        timeout: 60000,
+        waitUntil: 'networkidle'
       });
   
-      await page.waitForNavigation({ timeout: 30000 });
+      // Click submit and wait for navigation
+      await page.click('#login_submit');
+      await navigationPromise;
+  
       console.log('Post-login URL:', page.url());
   
-      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
+      // Save cookies and local storage
+      const cookies = await context.cookies();
+      const storage = await context.storageState();
+  
+      // Check if we're on the 2FA page
+      const is2FAPage = page.url().includes('/signup/twoFactor');
+      
+      if (is2FAPage) {
         console.log('Two-factor authentication required');
+        
+        // Save temporary state
         await context.storageState({ path: "temp_login.json" });
-        return { success: false, requiresTwoFactor: true };
+        
+        return { 
+          success: false, 
+          requiresTwoFactor: true,
+          cookies,
+          storage
+        };
       }
   
+      // Save final login state
       await context.storageState({ path: "login.json" });
-      console.log('Login session saved to login.json');
-  
-      const cookies = await context.cookies();
-      console.log('Cookies after login:', JSON.stringify(cookies, null, 2));
-  
-      return { success: true };
+      
+      return { 
+        success: true,
+        cookies,
+        storage
+      };
   
     } catch (error) {
       console.error('Login error:', error);

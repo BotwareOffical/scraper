@@ -305,6 +305,18 @@ app.post('/login', async (req, res) => {
     }
 
     const loginResult = await scraper.login(username, password);
+    
+    // Check if 2FA is required
+    if (loginResult.requiresTwoFactor) {
+      // Return special response indicating 2FA is needed
+      return res.json({
+        success: true,
+        requiresTwoFactor: true,
+        message: 'Two-factor authentication required'
+      });
+    }
+
+    // Regular successful login
     res.json({
       success: true,
       message: 'Login successful',
