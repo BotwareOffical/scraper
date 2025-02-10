@@ -160,33 +160,34 @@ class BuyeeScraper {
       console.log('Session expired - refreshing login');
       await this.refreshLoginSession();
     }
-
+  
     const browser = await chromium.launch({
-      headless: true, // Keep false for debugging
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-web-security'
       ]
     });
-
-    let page; // Declare page variable here
-
+  
+    let page;
+    let context;
+  
     try {
-      const context = await browser.newContext({
+      context = await browser.newContext({
         storageState: "login.json",
-        viewport: { width: 1920, height: 1080 }, // Larger viewport
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' // Updated UA
+        viewport: { width: 1920, height: 1080 },
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
       });
-
+  
       // Set critical headers
       await context.setExtraHTTPHeaders({
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': productUrl,
         'Priority': 'u=0, i'
       });
-
-      page = await context.newPage(); // Initialize page here
+  
+      page = await context.newPage();
       
       // Debug: Log network activity
       page.on('response', response => {
@@ -195,16 +196,16 @@ class BuyeeScraper {
           console.log('Redirect detected to:', response.headers().location);
         }
       });
-
+  
       console.log('Navigating to:', productUrl);
       await page.goto(productUrl, { waitUntil: 'networkidle', timeout: 60000 });
-
+  
       // Remove potential overlays
       await page.evaluate(() => {
         const elements = document.querySelectorAll('.overlay, .cookie-banner');
         elements.forEach(el => el.remove());
       });
-
+  
       // Click bid button with enhanced handling
       console.log('Clicking bid button...');
       const bidButton = await page.waitForSelector('#bidNow', { timeout: 15000 });
@@ -224,34 +225,34 @@ class BuyeeScraper {
         await page.waitForSelector('#bid_form', { timeout: 10000 });
         console.log('Found standard bid form');
       }
-
+  
       // Visual verification
       await page.screenshot({ path: 'bid-form-loaded.png' });
-
+  
       // Fill form with retry logic
       await this.retry(async () => {
         await page.fill('#bidYahoo_price', bidAmount.toString());
         await page.selectOption('#bidYahoo_plan', '99');
         await page.check('#bidYahoo_payment_method_type_2');
       }, 3);
-
+  
       // Submit and verify
       console.log('Submitting bid...');
       const [response] = await Promise.all([
         page.waitForNavigation({ timeout: 30000 }),
         page.click('#bid_submit')
       ]);
-
+  
       // Verify success
       if (response.url().includes('/bid/confirm')) {
         console.log('Bid confirmed successfully');
         return { success: true, message: `Bid of ${bidAmount} placed` };
       }
-
+  
       throw new Error('Bid confirmation page not reached');
-
+  
     } catch (error) {
-      await page?.screenshot({ path: 'bid-error.png' }); // Use optional chaining to avoid errors if page is undefined
+      await page?.screenshot({ path: 'bid-error.png' });
       console.error('Bid failure:', error);
       return { 
         success: false, 
@@ -262,7 +263,8 @@ class BuyeeScraper {
         }
       };
     } finally {
-      await browser?.close(); // Use optional chaining to avoid errors if browser is undefined
+      if (context) await context.close();
+      if (browser) await browser.close();
     }
   }
 
@@ -280,39 +282,37 @@ class BuyeeScraper {
   
   async checkLoginState() {
     try {
-        const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
-        console.log('Login file exists');
-        
-        // Check cookies
-        const cookies = loginData.cookies || [];
-        const hasLoginCookie = cookies.some(cookie => 
-            (cookie.name === 'otherbuyee' || cookie.name === 'userProfile') && 
-            !cookie.expired
-        );
-        
-        console.log('Has valid login cookie:', hasLoginCookie);
-        console.log('Number of cookies:', cookies.length);
-        
-        // Check for specific required cookies
-        const requiredCookies = ['otherbuyee', 'userProfile', 'userId'];
-        const missingCookies = requiredCookies.filter(name => 
-            !cookies.some(cookie => cookie.name === name)
-        );
-        
-        if (missingCookies.length > 0) {
-            console.log('Missing required cookies:', missingCookies);
-            return false;
-        }
-        
-        return hasLoginCookie;
-    } catch (error) {
-        console.error('Error checking login state:', error);
+      const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+      console.log('Login file exists');
+      
+      const cookies = loginData.cookies || [];
+      const hasLoginCookie = cookies.some(cookie => 
+        (cookie.name === 'otherbuyee' || cookie.name === 'userProfile') && 
+        !cookie.expired
+      );
+      
+      console.log('Has valid login cookie:', hasLoginCookie);
+      console.log('Number of cookies:', cookies.length);
+      
+      const requiredCookies = ['otherbuyee', 'userProfile', 'userId'];
+      const missingCookies = requiredCookies.filter(name => 
+        !cookies.some(cookie => cookie.name === name)
+      );
+      
+      if (missingCookies.length > 0) {
+        console.log('Missing required cookies:', missingCookies);
         return false;
+      }
+      
+      return hasLoginCookie;
+    } catch (error) {
+      console.error('Error checking login state:', error);
+      return false;
     }
   }
-
+  
   async refreshLoginSession() {
-    const loginResult = await this.login('YOUR_EMAIL', 'YOUR_PASSWORD');
+    const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
     if (loginResult.success) {
       console.log('Login session refreshed successfully');
     } else {
