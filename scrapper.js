@@ -13,7 +13,7 @@ class BuyeeScraper {
   // Setup browser and context
   async setupBrowser() {
     try {
-      if (!this.browser) {
+      if (!this.browser || !this.browser.isConnected()) {
         this.browser = await chromium.launch({
           headless: true,
           args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -38,10 +38,12 @@ class BuyeeScraper {
   async scrapeSearchResults(term, minPrice = "", maxPrice = "", page = 1) {
     console.log(`Searching for "${term}" - Page ${page}`);
     
-    const { browser, context } = await this.setupBrowser();
-    
+    let context;
+    let pageInstance;
     try {
-      const pageInstance = await context.newPage();
+      ({ context } = await this.setupBrowser());
+      
+      pageInstance = await context.newPage();
       pageInstance.setDefaultTimeout(300000);
       pageInstance.setDefaultNavigationTimeout(300000);
       
@@ -132,9 +134,6 @@ class BuyeeScraper {
         }
       }
   
-      await pageInstance.close();
-      await browser.close();
-  
       return {
         products,
         totalProducts: totalProducts || products.length,
@@ -142,19 +141,17 @@ class BuyeeScraper {
       };
     } catch (error) {
       console.error('Search failed:', error);
-      
-      // Ensure browser is closed
-      if (browser) await browser.close();
-      
       return {
         products: [],
         totalProducts: 0,
         currentPage: page
       };
+    } finally {
+      if (pageInstance) await pageInstance.close();
+      if (context) await context.close();
     }
   }
-
-  // scrapper.js (updated)
+  
   async placeBid(productUrl, bidAmount) {
     let isLoggedIn = await this.checkLoginState();
     if (!isLoggedIn) {
@@ -244,6 +241,83 @@ class BuyeeScraper {
       };
     } finally {
       if (page) await page.close();
+      if (context) await context.close();
+    }
+  }
+
+  // Add retry utility
+  async retry(fn, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
+  
+  async updateBid(productUrl) {
+    let context;
+    let page;
+    try {
+      ({ context } = await this.setupBrowser());
+      page = await context.newPage();
+      await page.goto(productUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 300000
+      });
+  
+      // Extract price with multiple selectors
+      let price = 'Price Not Available';
+      const priceElements = [
+        page.locator('.current_price .price'),
+        page.locator('.price'),
+        page.locator('.itemPrice')
+      ];
+  
+      for (const priceElement of priceElements) {
+        try {
+          const priceText = await priceElement.textContent();
+          if (priceText) {
+            price = priceText.trim();
+            break;
+          }
+        } catch {}
+      }
+  
+      // Extract time remaining with multiple selectors
+      let timeRemaining = 'Time Not Available';
+      const timeRemainingElements = [
+        page.locator('.itemInformation__infoItem .g-text--attention'),
+        page.locator('.itemInfo__time span'),
+        page.locator('.timeLeft'),
+        page.locator('.g-text--attention')
+      ];
+  
+      for (const timeElement of timeRemainingElements) {
+        try {
+          const timeText = await timeElement.textContent();
+          if (timeText) {
+            timeRemaining = timeText.trim();
+            break;
+          }
+        } catch {}
+      }
+  
+      return {
+        productUrl,
+        price: price.trim(),
+        timeRemaining: timeRemaining.trim()
+      };
+    } catch (error) {
+      console.error("Error during bid update:", error);
+      return {
+        productUrl,
+        error: error.message
+      };
+    } finally {
+      if (page) await page.close();
     }
   }
   
@@ -303,16 +377,57 @@ class BuyeeScraper {
       if (page) await page.close();
     }
   }
-
-  // Add retry utility
-  async retry(fn, retries = 3) {
-    for (let i = 0; i < retries; i++) {
-      try {
-        return await fn();
-      } catch (error) {
-        if (i === retries - 1) throw error;
-        await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  async submitTwoFactorCode(twoFactorCode) {
+    let context;
+    let page;
+  
+    try {
+      ({ context } = await this.setupBrowser());
+      page = await context.newPage();
+      
+      await page.goto("https://buyee.jp/signup/twoFactor", {
+        waitUntil: 'networkidle',
+        timeout: 30000
+      });
+  
+      // Fill in the 2FA code
+      for (let i = 0; i < 6; i++) {
+        await page.fill(`#input${i + 1}`, twoFactorCode[i]);
       }
+  
+      // Submit the form
+      await page.click('button[type="submit"]');
+  
+      await page.waitForNavigation({ timeout: 30000 });
+  
+      // Check if login was successful
+      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
+        throw new Error('Invalid two-factor code');
+      }
+  
+      // Save the final login state
+      await context.storageState({ path: "login.json" });
+      return { success: true };
+  
+    } catch (error) {
+      console.error('Two-factor authentication error:', error);
+      await page?.screenshot({ path: 'two-factor-error.png' });
+      throw error;
+    } finally {
+      if (page) await page.close();
+    }
+  }
+  
+  async refreshLoginSession() {
+    console.log('Refreshing login session...');
+    const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
+    if (loginResult.success) {
+      console.log('Login session refreshed successfully');
+      await this.checkLoginState(); // Verify the new session
+    } else {
+      console.error('Failed to refresh login session');
+      throw new Error('Failed to refresh login session');
     }
   }
   
@@ -344,194 +459,5 @@ class BuyeeScraper {
       return false;
     }
   }
-  
-  async refreshLoginSession() {
-    console.log('Refreshing login session...');
-    const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
-    if (loginResult.success) {
-      console.log('Login session refreshed successfully');
-      await this.checkLoginState(); // Verify the new session
-    } else {
-      console.error('Failed to refresh login session');
-      throw new Error('Failed to refresh login session');
-    }
-  }
-
-  // Update bid prices
-  async updateBid(productUrl) {
-    const browser = await chromium.launch({ 
-      headless: true, 
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    });
-    const context = await browser.newContext({ storageState: "login.json" });
-
-    try {
-      const page = await context.newPage();
-      await page.goto(productUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 300000
-      });
-
-      // Extract price with multiple selectors
-      let price = 'Price Not Available';
-      const priceElements = [
-        page.locator('.current_price .price'),
-        page.locator('.price'),
-        page.locator('.itemPrice')
-      ];
-
-      for (const priceElement of priceElements) {
-        try {
-          const priceText = await priceElement.textContent();
-          if (priceText) {
-            price = priceText.trim();
-            break;
-          }
-        } catch {}
-      }
-
-      // Extract time remaining with multiple selectors
-      let timeRemaining = 'Time Not Available';
-      const timeRemainingElements = [
-        page.locator('.itemInformation__infoItem .g-text--attention'),
-        page.locator('.itemInfo__time span'),
-        page.locator('.timeLeft'),
-        page.locator('.g-text--attention')
-      ];
-
-      for (const timeElement of timeRemainingElements) {
-        try {
-          const timeText = await timeElement.textContent();
-          if (timeText) {
-            timeRemaining = timeText.trim();
-            break;
-          }
-        } catch {}
-      }
-
-      return {
-        productUrl,
-        price: price.trim(),
-        timeRemaining: timeRemaining.trim()
-      };
-    } catch (error) {
-      console.error("Error during bid update:", error);
-      return {
-        productUrl,
-        error: error.message
-      };
-    } finally {
-      await context.close();
-      await browser.close();
-    }
-  }
-
-  async login(username, password) {
-    const browser = await chromium.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-  
-    const page = await context.newPage();
-    
-    try {
-      console.log('Starting login process...');
-      
-      await page.goto("https://buyee.jp/signup/login", {
-        waitUntil: 'networkidle',
-        timeout: 30000
-      });
-  
-      console.log('Filling login form...');
-      await page.fill('#login_mailAddress', username);
-      await page.waitForTimeout(500);
-      await page.fill('#login_password', password);
-      await page.waitForTimeout(500);
-  
-      const form = await page.$('#login_form');
-      if (!form) {
-        throw new Error('Login form not found');
-      }
-  
-      console.log('Submitting login form...');
-      await page.evaluate(() => {
-        document.querySelector('#login_submit').click();
-      });
-  
-      await page.waitForNavigation({ timeout: 30000 });
-      console.log('Post-login URL:', page.url());
-  
-      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
-        console.log('Two-factor authentication required');
-        await context.storageState({ path: "temp_login.json" });
-        return { success: false, requiresTwoFactor: true };
-      }
-  
-      await context.storageState({ path: "login.json" });
-      console.log('Login session saved to login.json');
-  
-      const cookies = await context.cookies();
-      console.log('Cookies after login:', JSON.stringify(cookies, null, 2));
-  
-      return { success: true };
-  
-    } catch (error) {
-      console.error('Login error:', error);
-      await page.screenshot({ path: 'login-error.png' });
-      throw error;
-    }
-  }
-    
-  async submitTwoFactorCode(twoFactorCode) {
-    const browser = await chromium.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const context = await browser.newContext({
-      storageState: "temp_login.json"
-    });
-  
-    const page = await context.newPage();
-    
-    try {
-      await page.goto("https://buyee.jp/signup/twoFactor", {
-        waitUntil: 'networkidle',
-        timeout: 30000
-      });
-  
-      // Fill in the 2FA code
-      for (let i = 0; i < 6; i++) {
-        await page.fill(`#input${i + 1}`, twoFactorCode[i]);
-      }
-  
-      // Submit the form
-      await page.click('button[type="submit"]');
-  
-      await page.waitForNavigation({ timeout: 30000 });
-  
-      // Check if login was successful
-      if (page.url().includes('https://buyee.jp/signup/twoFactor')) {
-        throw new Error('Invalid two-factor code');
-      }
-  
-      // Save the final login state
-      await context.storageState({ path: "login.json" });
-      return { success: true };
-  
-    } catch (error) {
-      console.error('Two-factor authentication error:', error);
-      await page.screenshot({ path: 'two-factor-error.png' });
-      throw error;
-    } finally {
-      await browser.close();
-    }
-  }
-}
-
+} 
 module.exports = BuyeeScraper;
