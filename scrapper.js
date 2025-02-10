@@ -62,6 +62,8 @@ class BuyeeScraper {
   }
 
   // Scrape search results and save to search.json
+// In scrapper.js - update the scrapeSearchResults method
+
   async scrapeSearchResults(term, minPrice = "", maxPrice = "", page = 1) {
     console.log(`Searching for "${term}" - Page ${page}`);
     
@@ -71,8 +73,10 @@ class BuyeeScraper {
       ({ context } = await this.setupBrowser());
       
       pageInstance = await context.newPage();
-      pageInstance.setDefaultTimeout(300000);
-      pageInstance.setDefaultNavigationTimeout(300000);
+      
+      // Set shorter timeouts to avoid Heroku 30s limit
+      pageInstance.setDefaultTimeout(25000);
+      pageInstance.setDefaultNavigationTimeout(25000);
       
       // Construct search URL with explicit page parameter
       let searchUrl = `${this.baseUrl}/item/search/query/${encodeURIComponent(term)}`;
@@ -84,66 +88,102 @@ class BuyeeScraper {
       params.push(`page=${page}`);
       
       searchUrl += `?${params.join("&")}`;
-  
+
+      // Add console logging for debugging
+      console.log(`Navigating to: ${searchUrl}`);
+
+      // Navigate with shorter timeout
       await pageInstance.goto(searchUrl, {
-        waitUntil: "networkidle",
-        timeout: 300000,
+        waitUntil: "domcontentloaded", // Changed from networkidle to faster option
+        timeout: 25000,
       });
-  
-      // Extract total products on first page
+
+      console.log('Page loaded, checking for items...');
+
+      // Extract total products on first page with error handling
       let totalProducts = 0;
       if (page === 1) {
         try {
           const totalProductsElement = await pageInstance.$('.result-num');
-          const totalProductsText = totalProductsElement 
-            ? await totalProductsElement.innerText() 
-            : '0 / 0';
-          
-          const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
-          totalProducts = totalProductsMatch 
-            ? parseInt(totalProductsMatch[1], 10) 
-            : 0;
+          if (totalProductsElement) {
+            const totalProductsText = await totalProductsElement.innerText();
+            const totalProductsMatch = totalProductsText.match(/\/\s*(\d+)/);
+            totalProducts = totalProductsMatch ? parseInt(totalProductsMatch[1], 10) : 0;
+          }
         } catch (extractionError) {
           console.warn('Could not extract total products:', extractionError);
         }
       }
-  
-      // Wait for items
-      await pageInstance.waitForSelector(".itemCard", { timeout: 50000 });
-      
-      const items = await pageInstance.$$(".itemCard");
+
+      // Check for no results message first
+      const noResultsElement = await pageInstance.$('.search-no-hits');
+      if (noResultsElement) {
+        console.log('No results found for search');
+        return {
+          products: [],
+          totalProducts: 0,
+          currentPage: page
+        };
+      }
+
+      // Wait for items with shorter timeout and fallback
+      let items = [];
+      try {
+        await pageInstance.waitForSelector(".itemCard", { timeout: 15000 });
+        items = await pageInstance.$$(".itemCard");
+      } catch (selectorError) {
+        console.log('Timeout waiting for .itemCard, checking alternative selectors...');
+        
+        // Try alternative selectors
+        const alternativeSelectors = ['.g-thumbnail', '.itemCard__itemName'];
+        for (const selector of alternativeSelectors) {
+          try {
+            await pageInstance.waitForSelector(selector, { timeout: 5000 });
+            items = await pageInstance.$$(selector);
+            if (items.length > 0) break;
+          } catch (e) {
+            console.log(`Alternative selector ${selector} not found`);
+          }
+        }
+      }
+
+      console.log(`Found ${items.length} items`);
       const products = [];
-  
+
       for (const item of items) {
         try {
           const productData = await pageInstance.evaluate((itemEl) => {
-            const titleElement = itemEl.querySelector(".itemCard__itemName a");
+            const titleElement = itemEl.querySelector(".itemCard__itemName a") || 
+                              itemEl.querySelector("a[data-testid='item-name']");
             const title = titleElement ? titleElement.textContent.trim() : "No Title";
             
             let url = titleElement ? titleElement.getAttribute("href") : null;
             if (!url) return null;
             
             url = url.startsWith("http") ? url : `https://buyee.jp${url}`;
-  
-            const imgElement = itemEl.querySelector(".g-thumbnail__image");
+
+            const imgElement = itemEl.querySelector(".g-thumbnail__image") || 
+                            itemEl.querySelector("img[data-testid='item-image']");
             const imgSrc = imgElement 
               ? (imgElement.getAttribute("data-src") || 
-                 imgElement.getAttribute("src") || 
-                 imgElement.src)
+                imgElement.getAttribute("src") || 
+                imgElement.src)
               : null;
-  
-            const priceElement = itemEl.querySelector(".g-price");
+
+            const priceElement = itemEl.querySelector(".g-price") ||
+                              itemEl.querySelector("[data-testid='item-price']");
             const price = priceElement ? priceElement.textContent.trim() : "Price Not Available";
-  
+
             const timeElements = [
               itemEl.querySelector('.itemCard__time'),
               itemEl.querySelector('.g-text--attention'),
-              itemEl.querySelector('.timeLeft')
+              itemEl.querySelector('.timeLeft'),
+              itemEl.querySelector('[data-testid="time-remaining"]')
             ];
-  
+
             const timeRemaining = timeElements.find(el => el && el.textContent)
               ?.textContent.trim() || 'Time Not Available';
-  
+
             return {
               title,
               price,
@@ -152,7 +192,7 @@ class BuyeeScraper {
               images: imgSrc ? [imgSrc.split("?")[0]] : [],
             };
           }, item);
-  
+
           if (productData) {
             products.push(productData);
           }
@@ -160,7 +200,7 @@ class BuyeeScraper {
           console.error('Error processing individual item:', itemError);
         }
       }
-  
+
       return {
         products,
         totalProducts: totalProducts || products.length,
@@ -168,6 +208,7 @@ class BuyeeScraper {
       };
     } catch (error) {
       console.error('Search failed:', error);
+      // Return empty results instead of throwing
       return {
         products: [],
         totalProducts: 0,
