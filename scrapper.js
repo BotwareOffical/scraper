@@ -482,7 +482,35 @@ class BuyeeScraper {
     let page;
   
     try {
-      ({ context } = await this.setupBrowser());
+      // Clear previous session files
+      console.log('Clearing previous session data...');
+      try {
+        fs.unlinkSync('login.json');
+        fs.unlinkSync('temp_login.json');
+        console.log('Previous session files cleared');
+      } catch (e) {
+        console.log('No previous session files found to clear');
+      }
+  
+      // Create fresh browser context without loading any state
+      this.browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process'
+        ]
+      });
+      
+      context = await this.browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        locale: 'en-US',
+        timezoneId: 'Europe/Berlin',
+        acceptDownloads: true
+      });
+      
       page = await context.newPage();
       
       console.log('Starting login process...');
@@ -491,6 +519,10 @@ class BuyeeScraper {
         waitUntil: 'networkidle',
         timeout: 60000
       });
+  
+      // Take screenshot of login page
+      await page.screenshot({ path: 'login-page.png' });
+      console.log('Login page screenshot saved');
   
       console.log('Filling login form...');
       await page.fill('#login_mailAddress', username);
@@ -510,35 +542,30 @@ class BuyeeScraper {
   
       console.log('Post-login URL:', page.url());
   
-      // Save cookies and local storage
-      const cookies = await context.cookies();
-      const storage = await context.storageState();
+      // Take screenshot after navigation
+      await page.screenshot({ path: 'post-login.png' });
   
       // Check if we're on the 2FA page
       const is2FAPage = page.url().includes('/signup/twoFactor');
       
       if (is2FAPage) {
         console.log('Two-factor authentication required');
+        const pageContent = await page.content();
+        console.log('2FA Page HTML:', pageContent);
         
         // Save temporary state
         await context.storageState({ path: "temp_login.json" });
         
         return { 
           success: false, 
-          requiresTwoFactor: true,
-          cookies,
-          storage
+          requiresTwoFactor: true
         };
       }
   
       // Save final login state
       await context.storageState({ path: "login.json" });
       
-      return { 
-        success: true,
-        cookies,
-        storage
-      };
+      return { success: true };
   
     } catch (error) {
       console.error('Login error:', error);
