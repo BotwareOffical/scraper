@@ -563,126 +563,79 @@ class BuyeeScraper {
         timeout: 60000
       });
   
-      // Debug: Print current URL and page content
+      // Debug: Print current URL and page text content
       console.log('Current URL:', page.url());
-      const pageContent = await page.content();
-      console.log('Page HTML:', pageContent);
+      const pageText = await page.evaluate(() => {
+        // Remove scripts and styles before getting text
+        const clone = document.cloneNode(true);
+        const scripts = clone.getElementsByTagName('script');
+        const styles = clone.getElementsByTagName('style');
+        while (scripts.length > 0) scripts[0].remove();
+        while (styles.length > 0) styles[0].remove();
+        return document.body.innerText;
+      });
+      console.log('Page Text Content:', pageText);
   
       // Take screenshot for debugging
       await page.screenshot({ path: '2fa-page.png' });
   
-      // Debug: Check for input fields
-      const inputs = await page.$$('input');
-      console.log(`Found ${inputs.length} input fields`);
-      
-      for (const input of inputs) {
-        const id = await input.getAttribute('id');
-        const type = await input.getAttribute('type');
-        console.log(`Input field - ID: ${id}, Type: ${type}`);
-      }
+      // Debug: List all input fields
+      const inputs = await page.$$eval('input', inputs => 
+        inputs.map(input => ({
+          id: input.id,
+          type: input.type,
+          name: input.name,
+          placeholder: input.placeholder
+        }))
+      );
+      console.log('Found input fields:', inputs);
   
-      // Try different selectors for 2FA input
-      const selectorAttempts = [
-        `#input${1}`,  // Original attempt
-        'input[type="text"]',  // Generic text input
-        '.verification-code input',  // Common class pattern
-        '[name*="verification"]',  // Name containing verification
-        '[name*="code"]',  // Name containing code
-        '#code',  // Common ID
-        '#verificationCode'  // Common ID
-      ];
+      // Debug: List all buttons
+      const buttons = await page.$$eval('button', buttons => 
+        buttons.map(button => ({
+          text: button.textContent?.trim(),
+          type: button.type,
+          id: button.id
+        }))
+      );
+      console.log('Found buttons:', buttons);
   
-      let inputField = null;
-      for (const selector of selectorAttempts) {
-        console.log(`Trying selector: ${selector}`);
-        inputField = await page.$(selector);
-        if (inputField) {
-          console.log(`Found input with selector: ${selector}`);
-          break;
-        }
-      }
-  
-      if (!inputField) {
-        console.error('Could not find 2FA input field');
-        throw new Error('2FA input field not found');
-      }
+      // Get page title and headers for context
+      const pageHeadings = await page.$$eval('h1, h2, h3', headings => 
+        headings.map(h => h.textContent?.trim())
+      );
+      console.log('Page headings:', pageHeadings);
   
       // Try to fill in the code
-      console.log('Attempting to fill 2FA code:', twoFactorCode);
-      
-      // Try different input methods
-      try {
-        // Method 1: Direct fill
-        await inputField.fill(twoFactorCode);
-      } catch (e) {
-        console.log('Direct fill failed, trying type:', e);
-        try {
-          // Method 2: Type
-          await inputField.type(twoFactorCode);
-        } catch (e2) {
-          console.log('Type failed, trying evaluate:', e2);
-          // Method 3: JavaScript injection
-          await page.evaluate((code) => {
-            const input = document.querySelector('input[type="text"]');
-            if (input) {
-              input.value = code;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-          }, twoFactorCode);
-        }
+      console.log('Attempting to fill 2FA code...');
+      const codeInput = await page.$('input[type="text"]');
+      if (codeInput) {
+        await codeInput.fill(twoFactorCode);
+        console.log('Code filled successfully');
+      } else {
+        console.log('Could not find code input field');
       }
   
-      // Look for submit button
+      // Try to submit
       console.log('Looking for submit button...');
-      const buttonSelectors = [
-        'button[type="submit"]',
-        'input[type="submit"]',
-        'button:has-text("Submit")',
-        'button:has-text("Verify")',
-        '.submit-button',
-        '#submit'
-      ];
-  
-      let submitButton = null;
-      for (const selector of buttonSelectors) {
-        console.log(`Trying button selector: ${selector}`);
-        submitButton = await page.$(selector);
-        if (submitButton) {
-          console.log(`Found submit button with selector: ${selector}`);
-          break;
-        }
+      const submitButton = await page.$('button[type="submit"]');
+      if (submitButton) {
+        await submitButton.click();
+        console.log('Submit button clicked');
+      } else {
+        console.log('Could not find submit button');
       }
   
-      if (!submitButton) {
-        console.error('Could not find submit button');
-        throw new Error('Submit button not found');
-      }
+      // Wait for navigation and check result
+      await page.waitForNavigation({ timeout: 60000 });
+      console.log('Final URL:', page.url());
   
-      // Click the submit button and wait for navigation
-      console.log('Clicking submit button...');
-      await Promise.all([
-        page.waitForNavigation({ timeout: 60000 }),
-        submitButton.click()
-      ]);
-  
-      console.log('Post-submit URL:', page.url());
-  
-      // Take screenshot after submission
-      await page.screenshot({ path: 'post-2fa-submit.png' });
-  
-      // Check if we're still on 2FA page
       if (page.url().includes('signup/twoFactor')) {
-        const errorText = await page.evaluate(() => {
-          const errorElement = document.querySelector('.error-message, .alert, .notification');
-          return errorElement ? errorElement.textContent : null;
-        });
-        throw new Error(errorText || 'Invalid two-factor code');
+        throw new Error('Still on 2FA page - verification likely failed');
       }
   
       // Save the final login state
       await context.storageState({ path: "login.json" });
-      console.log('Login state saved after 2FA');
-      
       return { success: true };
   
     } catch (error) {
@@ -693,7 +646,6 @@ class BuyeeScraper {
       if (page) await page.close();
     }
   }
-  
   
   async refreshLoginSession() {
     console.log('Refreshing login session...');
