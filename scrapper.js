@@ -237,30 +237,39 @@ class BuyeeScraper {
       ({ context } = await this.setupBrowser());
       page = await context.newPage();
   
-      // Enable verbose network logging
-      page.on('request', request => {
+      // Set up request interception to modify headers
+      await page.route('**/*', async route => {
+        const request = route.request();
+        const headers = request.headers();
+        
+        // Add authorization headers for all requests
+        const newHeaders = {
+          ...headers,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'same-origin',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+        };
+  
+        // Log requests for debugging
         console.log(`>> ${request.method()} ${request.url()}`);
-        console.log('Request headers:', request.headers());
+        console.log('Request headers:', newHeaders);
+  
+        // Continue with modified headers
+        await route.continue({ headers: newHeaders });
       });
   
+      // Handle responses to check for redirects and auth issues
       page.on('response', response => {
         console.log(`<< ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
           console.log('Redirect headers:', response.headers());
         }
-      });
-  
-      // Set extra headers to mimic browser better
-      await context.setExtraHTTPHeaders({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
       });
   
       console.log('Navigating to:', productUrl);
@@ -269,69 +278,35 @@ class BuyeeScraper {
         timeout: 60000 
       });
   
-      console.log('Current URL after navigation:', page.url());
-      console.log('Current cookies:', await context.cookies());
-  
-      // Remove any overlays and wait a bit
-      await page.evaluate(() => {
-        const elements = document.querySelectorAll('.overlay, .cookie-banner');
-        elements.forEach(el => el.remove());
-      });
-      await page.waitForTimeout(2000);
-  
-      // Wait for and click bid button
-      console.log('Waiting for bid button...');
+      // Take screenshot for debugging
+      await page.screenshot({ path: 'pre-bid.png' });
+      
+      // Wait longer for bid button
       const bidButton = await page.waitForSelector('#bidNow', { 
-        timeout: 30000,
+        timeout: 60000,
         state: 'visible' 
       });
   
-      // Take screenshot before clicking
-      await page.screenshot({ path: 'pre-bid-click.png' });
-      
-      // Click without using Promise.all to better track the navigation
+      if (!bidButton) {
+        throw new Error('Bid button not found');
+      }
+  
+      // Click bid button and wait for navigation/form
       console.log('Clicking bid button...');
-      await bidButton.click();
-      
-      // Wait for either form or navigation
-      console.log('Waiting for post-click result...');
-      try {
-        await Promise.race([
-          page.waitForSelector('.bidInput__main', { timeout: 10000 }),
-          page.waitForSelector('.modal-body', { timeout: 10000 }),
-          page.waitForNavigation({ timeout: 10000 })
-        ]);
-      } catch (e) {
-        console.log('Timeout waiting for post-click result:', e.message);
-      }
-  
-      // Take screenshot after click
-      await page.screenshot({ path: 'post-bid-click.png' });
-      
-      console.log('Current URL after bid click:', page.url());
-      console.log('Current page content:', await page.content());
-  
-      if (page.url().includes('signup/login')) {
-        throw new Error('Session expired during bid');
-      }
-  
-      // Try to detect what happened after the click
-      const formExists = await Promise.race([
-        page.waitForSelector('.bidInput__main', { timeout: 5000 })
-          .then(() => 'main-form'),
-        page.waitForSelector('.modal-body', { timeout: 5000 })
-          .then(() => 'modal-form'),
-        new Promise(resolve => setTimeout(() => resolve('timeout'), 5000))
+      await Promise.all([
+        page.waitForNavigation({ timeout: 60000 }),
+        bidButton.click()
       ]);
   
-      console.log('Form detection result:', formExists);
-  
-      if (formExists === 'timeout') {
-        throw new Error('Could not detect bid form after button click');
+      // Check if we got redirected to login
+      if (page.url().includes('signup/login')) {
+        throw new Error('Lost authentication during bid');
       }
   
-      // Fill the form
-      console.log('Filling bid form...');
+      // Wait for bid form
+      const priceInput = await page.waitForSelector('#bidYahoo_price', { timeout: 30000 });
+      
+      // Fill bid details
       await page.evaluate((amount) => {
         const priceInput = document.querySelector('#bidYahoo_price');
         if (!priceInput) throw new Error('Price input not found');
@@ -355,19 +330,16 @@ class BuyeeScraper {
   
       await page.waitForTimeout(1000);
   
-      // Submit the bid
-      console.log('Looking for submit button...');
-      const submitButton = await page.waitForSelector('#bid_submit', { timeout: 5000 });
+      // Submit bid
+      const submitButton = await page.waitForSelector('#bid_submit', { timeout: 30000 });
       
       console.log('Submitting bid...');
-      const [response] = await Promise.all([
-        page.waitForNavigation({ timeout: 30000 }),
+      await Promise.all([
+        page.waitForNavigation({ timeout: 60000 }),
         submitButton.click()
       ]);
   
-      console.log('Post-submit URL:', page.url());
-      await page.screenshot({ path: 'post-submit.png' });
-  
+      // Verify success
       if (page.url().includes('/bid/confirm')) {
         console.log('Bid confirmed successfully');
         return { success: true, message: `Bid of ${bidAmount} placed successfully` };
@@ -377,11 +349,8 @@ class BuyeeScraper {
   
     } catch (error) {
       console.error('Bid placement failed:', error);
-      
-      // Take error screenshot
       await page?.screenshot({ path: 'bid-error.png' });
   
-      // Get additional debug info
       const debugInfo = {
         url: page?.url(),
         cookies: await context?.cookies(),
