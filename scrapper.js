@@ -217,7 +217,7 @@ class BuyeeScraper {
       if (context) await context.close();
     }
   }
-  
+
   async placeBid(productUrl, bidAmount) {
     let context;
     let page;
@@ -234,88 +234,220 @@ class BuyeeScraper {
         }
       }
   
-      ({ context } = await this.setupBrowser());
-      page = await context.newPage();
-  
-      // Load stored cookies to get Authorization token
+      // Load stored cookies and create context
       const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
-      const authCookie = loginData.cookies.find(c => c.name === 'otherbuyee');
-      
-      if (!authCookie) {
-        throw new Error('Authorization cookie not found');
-      }
+      console.log('Login data:', loginData);
   
-      // Set up request interception with proper headers
-      await page.route('**/*', async route => {
-        const request = route.request();
-        const headers = request.headers();
-        
-        // Add full set of required headers
-        const newHeaders = {
-          ...headers,
+      // Create browser context with specific settings
+      this.browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials'
+        ]
+      });
+  
+      // Create context with stored state and consistent IP
+      context = await this.browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        locale: 'en-US',
+        timezoneId: 'Europe/Berlin',
+        acceptDownloads: true,
+        extraHTTPHeaders: {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
           'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Cookie': loginData.cookies.map(c => `${c.name}=${c.value}`).join('; '),
           'Pragma': 'no-cache',
           'Sec-Fetch-Dest': 'document',
           'Sec-Fetch-Mode': 'navigate',
           'Sec-Fetch-Site': 'same-origin',
           'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1',
-          'Authorization': `Bearer ${authCookie.value}`,
-          'X-Requested-With': 'XMLHttpRequest'
-        };
-  
-        // Log request details for debugging
-        console.log(`Request: ${request.method()} ${request.url()}`);
-        console.log('Headers:', newHeaders);
-  
-        await route.continue({ headers: newHeaders });
-      });
-  
-      // Log responses to check for redirects/auth issues
-      page.on('response', async response => {
-        console.log(`Response: ${response.status()} ${response.url()}`);
-        if (response.status() === 302) {
-          console.log('Redirect headers:', response.headers());
-          const content = await response.text().catch(() => 'Could not get content');
-          console.log('Redirect content:', content);
+          'Upgrade-Insecure-Requests': '1'
         }
       });
   
-      console.log('Navigating to:', productUrl);
-      await page.goto(productUrl, { 
-        waitUntil: 'networkidle',
-        timeout: 60000  // Increased timeout
-      });
-  
-      // Take screenshot for debugging
-      await page.screenshot({ path: 'pre-bid.png' });
-      
-      // Wait longer for bid button with debug logging
-      console.log('Waiting for bid button...');
-      const bidButton = await page.waitForSelector('#bidNow', { 
-        timeout: 60000,  // Increased timeout
-        state: 'visible' 
-      });
-  
-      if (!bidButton) {
-        throw new Error('Bid button not found');
+      // Add cookies explicitly with proper attributes
+      for (const cookie of loginData.cookies) {
+        await context.addCookies([{
+          ...cookie,
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax',
+          expires: Date.now() / 1000 + 86400
+        }]);
       }
   
-      // Click bid button and wait for navigation
+      page = await context.newPage();
+  
+      // Set up consistent request interception
+      await page.route('**/*', async route => {
+        const request = route.request();
+        
+        // Only modify specific request types
+        if (request.resourceType() === 'document' || request.resourceType() === 'fetch') {
+          const headers = request.headers();
+          
+          // Get auth cookie
+          const authCookie = loginData.cookies.find(c => c.name === 'otherbuyee');
+          const userIdCookie = loginData.cookies.find(c => c.name === 'userId');
+          
+          const newHeaders = {
+            ...headers,
+            'Cookie': loginData.cookies.map(c => `${c.name}=${c.value}`).join('; '),
+            'X-Requested-With': 'XMLHttpRequest',
+            'Authorization': authCookie ? `Bearer ${authCookie.value}` : '',
+            'X-User-Id': userIdCookie ? userIdCookie.value : ''
+          };
+  
+          console.log(`Request headers for ${request.url()}:`, newHeaders);
+          await route.continue({ headers: newHeaders });
+        } else {
+          await route.continue();
+        }
+      });
+  
+      // Monitor navigation and responses
+      page.on('response', async response => {
+        const status = response.status();
+        const url = response.url();
+        console.log(`Response ${status} for ${url}`);
+        
+        if (status === 302 || status === 401 || status === 403) {
+          console.log('Important response headers:', response.headers());
+          try {
+            const text = await response.text();
+            console.log('Response content:', text);
+          } catch (e) {
+            console.log('Could not get response content');
+          }
+        }
+      });
+  
+      // Navigate with retry logic
+      console.log('Navigating to:', productUrl);
+      let navigationSuccess = false;
+      for (let attempt = 1; attempt <= 3 && !navigationSuccess; attempt++) {
+        try {
+          await page.goto(productUrl, {
+            waitUntil: 'networkidle',
+            timeout: 60000
+          });
+          navigationSuccess = true;
+        } catch (e) {
+          console.log(`Navigation attempt ${attempt} failed:`, e);
+          if (attempt === 3) throw e;
+          await page.waitForTimeout(2000);
+        }
+      }
+  
+      // Wait for and verify bid button
+      console.log('Waiting for bid button...');
+      const bidButtonSelectors = ['#bidNow', 'button[data-testid="bid-button"]', '.bid-button'];
+      let bidButton = null;
+      
+      for (const selector of bidButtonSelectors) {
+        try {
+          bidButton = await page.waitForSelector(selector, {
+            timeout: 60000,
+            state: 'visible'
+          });
+          if (bidButton) {
+            console.log(`Found bid button with selector: ${selector}`);
+            break;
+          }
+        } catch (e) {
+          console.log(`Selector ${selector} not found`);
+        }
+      }
+  
+      if (!bidButton) {
+        throw new Error('Bid button not found with any selector');
+      }
+  
+      // Take screenshot before clicking
+      await page.screenshot({ path: 'pre-bid-click.png' });
+  
+      // Click bid button with retry logic
       console.log('Clicking bid button...');
-      await Promise.all([
-        page.waitForNavigation({ timeout: 60000 }), // Increased timeout
-        bidButton.click()
-      ]);
+      let clickSuccess = false;
+      for (let attempt = 1; attempt <= 3 && !clickSuccess; attempt++) {
+        try {
+          await Promise.all([
+            page.waitForNavigation({ timeout: 60000 }),
+            bidButton.click()
+          ]);
+          clickSuccess = true;
+        } catch (e) {
+          console.log(`Bid button click attempt ${attempt} failed:`, e);
+          if (attempt === 3) throw e;
+          await page.waitForTimeout(2000);
+        }
+      }
   
-      // Rest of the bidding logic...
-      // [Previous bid form filling code remains the same]
+      // Verify we're on the correct page
+      const currentUrl = page.url();
+      console.log('Current URL after bid button click:', currentUrl);
+      
+      if (currentUrl.includes('signup/login')) {
+        throw new Error('Redirected to login page - authentication failed');
+      }
   
-      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
+      // Fill bid form
+      const priceInput = await page.waitForSelector('#bidYahoo_price', { timeout: 60000 });
+      
+      await page.evaluate((amount) => {
+        // Fill price
+        const priceInput = document.querySelector('#bidYahoo_price');
+        priceInput.value = amount.toString();
+        priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+        priceInput.dispatchEvent(new Event('change', { bubbles: true }));
+  
+        // Select plan
+        const planSelect = document.querySelector('#bidYahoo_plan');
+        planSelect.value = '99';
+        planSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  
+        // Select payment method
+        const paymentRadio = document.querySelector('#bidYahoo_payment_method_type_2');
+        if (!paymentRadio.checked) {
+          paymentRadio.click();
+          paymentRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, bidAmount);
+  
+      // Wait for form submission
+      await page.waitForTimeout(2000);
+  
+      // Submit bid with retry
+      const submitButton = await page.waitForSelector('#bid_submit', { timeout: 60000 });
+      
+      console.log('Submitting bid...');
+      let submitSuccess = false;
+      for (let attempt = 1; attempt <= 3 && !submitSuccess; attempt++) {
+        try {
+          await Promise.all([
+            page.waitForNavigation({ timeout: 60000 }),
+            submitButton.click()
+          ]);
+          submitSuccess = true;
+        } catch (e) {
+          console.log(`Bid submission attempt ${attempt} failed:`, e);
+          if (attempt === 3) throw e;
+          await page.waitForTimeout(2000);
+        }
+      }
+  
+      // Verify success
+      if (page.url().includes('/bid/confirm')) {
+        console.log('Bid confirmed successfully');
+        return { success: true, message: `Bid of ${bidAmount} placed successfully` };
+      }
+  
+      throw new Error('Bid submission completed but confirmation page not reached');
   
     } catch (error) {
       console.error('Bid placement failed:', error);
@@ -324,11 +456,6 @@ class BuyeeScraper {
       const debugInfo = {
         url: page?.url(),
         cookies: await context?.cookies(),
-        headers: await page?.evaluate(() => {
-          return Object.entries(window.getComputedStyle(document.documentElement))
-            .filter(([key]) => key.startsWith('--header-'))
-            .reduce((acc, [key, value]) => ({...acc, [key]: value}), {});
-        }),
         content: await page?.content().catch(() => 'Could not get content')
       };
       
@@ -466,11 +593,7 @@ class BuyeeScraper {
         waitUntil: 'networkidle',
         timeout: 60000
       });
-  
-      // Take screenshot of login page
-      await page.screenshot({ path: 'login-page.png' });
-      console.log('Login page screenshot saved');
-  
+    
       console.log('Filling login form...');
       await page.fill('#login_mailAddress', username);
       await page.waitForTimeout(500);
@@ -710,98 +833,6 @@ class BuyeeScraper {
       if (context) await context.close();
     }
   }
-  
-  async submitTwoFactorCode(twoFactorCode) {
-    let context;
-    let page;
-  
-    try {
-      ({ context } = await this.setupBrowser());
-      page = await context.newPage();
-      
-      console.log('Navigating to 2FA page...');
-      await page.goto("https://buyee.jp/signup/twoFactor", {
-        waitUntil: 'networkidle',
-        timeout: 60000
-      });
-  
-      // Debug: Take screenshot before filling code
-      await page.screenshot({ path: '2fa-before.png' });
-  
-      // Split the 6-digit code into individual digits
-      const digits = twoFactorCode.toString().split('');
-      
-      if (digits.length !== 6) {
-        throw new Error('Two-factor code must be exactly 6 digits');
-      }
-  
-      // Fill each digit into its corresponding input box
-      for (let i = 1; i <= 6; i++) {
-        const inputSelector = `#input${i}`;
-        await page.waitForSelector(inputSelector, { timeout: 5000 });
-        
-        // Clear the input first
-        await page.$eval(inputSelector, el => el.value = '');
-        
-        // Type the digit
-        await page.type(inputSelector, digits[i-1], { delay: 100 });
-      }
-  
-      // Debug: Take screenshot after filling code
-      await page.screenshot({ path: '2fa-after.png' });
-  
-      // Wait for any validation to complete
-      await page.waitForTimeout(1000);
-  
-      // Check for error message
-      const errorFrame = await page.$('#error-frame');
-      const isErrorVisible = await errorFrame.evaluate(el => 
-        window.getComputedStyle(el).display !== 'none'
-      );
-  
-      if (isErrorVisible) {
-        throw new Error('Invalid two-factor code');
-      }
-  
-      // Wait for navigation after successful 2FA
-      // The page should automatically submit once all 6 digits are entered correctly
-      await page.waitForNavigation({ 
-        timeout: 30000,
-        waitUntil: 'networkidle'
-      });
-  
-      // Check if we're still on the 2FA page
-      if (page.url().includes('twoFactor')) {
-        throw new Error('Still on 2FA page after code entry');
-      }
-  
-      // Save the final login state
-      await context.storageState({ path: "login.json" });
-      
-      return { success: true };
-  
-    } catch (error) {
-      console.error('Two-factor authentication error:', error);
-      
-      // Take error screenshot
-      await page?.screenshot({ path: 'two-factor-error.png' });
-      
-      // Get additional debug info
-      const debugInfo = {
-        url: page?.url(),
-        content: await page?.content().catch(() => 'Could not get content'),
-        error: error.message
-      };
-      
-      console.log('Debug info:', debugInfo);
-      
-      throw error;
-    } finally {
-      if (page) await page.close();
-      if (context) await context.close();
-    }
-  }
-
   async refreshLoginSession() {
     console.log('Refreshing login session...');
     const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
