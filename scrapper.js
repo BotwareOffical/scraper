@@ -234,11 +234,7 @@ class BuyeeScraper {
         }
       }
   
-      // Load stored cookies and create context
-      const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
-      console.log('Login data:', loginData);
-  
-      // Create browser context with specific settings
+      // Enhanced browser launch configuration
       this.browser = await chromium.launch({
         headless: true,
         args: [
@@ -246,17 +242,58 @@ class BuyeeScraper {
           '--disable-setuid-sandbox',
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process',
-          '--disable-site-isolation-trials'
-        ]
+          '--disable-site-isolation-trials',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-extensions',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-default-apps',
+          '--disable-features=TranslateUI',
+          '--disable-hooks',
+          '--disable-ipc-flooding-protection',
+          '--disable-popup-blocking',
+          '--disable-prompt-on-repost',
+          '--disable-renderer-backgrounding',
+          '--disable-sync',
+          '--force-color-profile=srgb',
+          '--disable-features=GlobalMediaControls',
+          '--metrics-recording-only',
+          '--no-first-run',
+          '--password-store=basic',
+          '--use-mock-keychain',
+          '--enable-features=NetworkService,NetworkServiceInProcess',
+          '--memory-pressure-off',
+          '--single-process',
+          '--max-old-space-size=256'
+        ],
+        env: {
+          ...process.env,
+          PLAYWRIGHT_SKIP_BROWSER_GC: '1',
+          PLAYWRIGHT_NODEJS_MAX_MEMORY: '256'
+        }
       });
   
-      // Create context with stored state and consistent IP
+      // Create context with stored state - similar to 2FA approach
+      // Add stealth configuration
+      await this.browser.newContext().then(async (tmpContext) => {
+        const page = await tmpContext.newPage();
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+          window.chrome = { runtime: {} };
+          Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        });
+        await tmpContext.close();
+      });
+  
       context = await this.browser.newContext({
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         locale: 'en-US',
         timezoneId: 'Europe/Berlin',
         acceptDownloads: true,
+        storageState: 'login.json',
+        geolocation: { longitude: 13.404954, latitude: 52.520008 }, // Berlin coordinates
+        permissions: ['geolocation'],
         extraHTTPHeaders: {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
@@ -270,17 +307,6 @@ class BuyeeScraper {
         }
       });
   
-      // Add cookies explicitly with proper attributes
-      for (const cookie of loginData.cookies) {
-        await context.addCookies([{
-          ...cookie,
-          secure: true,
-          httpOnly: true,
-          sameSite: 'Lax',
-          expires: Date.now() / 1000 + 86400
-        }]);
-      }
-  
       page = await context.newPage();
   
       // Set up consistent request interception
@@ -291,16 +317,9 @@ class BuyeeScraper {
         if (request.resourceType() === 'document' || request.resourceType() === 'fetch') {
           const headers = request.headers();
           
-          // Get auth cookie
-          const authCookie = loginData.cookies.find(c => c.name === 'otherbuyee');
-          const userIdCookie = loginData.cookies.find(c => c.name === 'userId');
-          
           const newHeaders = {
             ...headers,
-            'Cookie': loginData.cookies.map(c => `${c.name}=${c.value}`).join('; '),
-            'X-Requested-With': 'XMLHttpRequest',
-            'Authorization': authCookie ? `Bearer ${authCookie.value}` : '',
-            'X-User-Id': userIdCookie ? userIdCookie.value : ''
+            'X-Requested-With': 'XMLHttpRequest'
           };
   
           console.log(`Request headers for ${request.url()}:`, newHeaders);
