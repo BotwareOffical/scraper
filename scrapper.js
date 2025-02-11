@@ -451,14 +451,13 @@ class BuyeeScraper {
     let page;
   
     try {
-      // Clear previous session files
-      console.log('Clearing previous session data...');
+      // Only clear login.json, keep temp_login.json for 2FA
+      console.log('Clearing previous login state...');
       try {
         fs.unlinkSync('login.json');
-        fs.unlinkSync('temp_login.json');
-        console.log('Previous session files cleared');
+        console.log('Previous login file cleared');
       } catch (e) {
-        console.log('No previous session files found to clear');
+        console.log('No previous login file found to clear');
       }
   
       // Create fresh browser context without loading any state
@@ -531,7 +530,7 @@ class BuyeeScraper {
         };
       }
   
-      // Save final login state
+      // If no 2FA required, save final login state
       await context.storageState({ path: "login.json" });
       
       return { success: true };
@@ -542,6 +541,133 @@ class BuyeeScraper {
       throw error;
     } finally {
       if (page) await page.close();
+    }
+  }
+  
+  async submitTwoFactorCode(twoFactorCode) {
+    let context;
+    let page;
+  
+    try {
+      // Create context using the temporary login state
+      this.browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process'
+        ]
+      });
+  
+      // Try to load the temporary login state
+      let loginState;
+      try {
+        loginState = JSON.parse(fs.readFileSync('temp_login.json', 'utf8'));
+        console.log('Loaded temporary login state');
+      } catch (e) {
+        console.error('Failed to load temporary login state:', e);
+        throw new Error('No temporary login state found. Please log in again.');
+      }
+  
+      context = await this.browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        locale: 'en-US',
+        timezoneId: 'Europe/Berlin',
+        acceptDownloads: true,
+        storageState: loginState
+      });
+  
+      page = await context.newPage();
+      
+      console.log('Navigating to 2FA page...');
+      await page.goto("https://buyee.jp/signup/twoFactor", {
+        waitUntil: 'networkidle',
+        timeout: 60000
+      });
+  
+      // Debug: Take screenshot before filling code
+      await page.screenshot({ path: '2fa-before.png' });
+  
+      // Split the 6-digit code into individual digits
+      const digits = twoFactorCode.toString().split('');
+      
+      if (digits.length !== 6) {
+        throw new Error('Two-factor code must be exactly 6 digits');
+      }
+  
+      // Fill each digit into its corresponding input box
+      for (let i = 1; i <= 6; i++) {
+        const inputSelector = `#input${i}`;
+        await page.waitForSelector(inputSelector, { timeout: 5000 });
+        
+        // Clear the input first
+        await page.$eval(inputSelector, el => el.value = '');
+        
+        // Type the digit
+        await page.type(inputSelector, digits[i-1], { delay: 100 });
+      }
+  
+      // Debug: Take screenshot after filling code
+      await page.screenshot({ path: '2fa-after.png' });
+  
+      // Wait for any validation to complete
+      await page.waitForTimeout(1000);
+  
+      // Check for error message
+      const errorFrame = await page.$('#error-frame');
+      const isErrorVisible = await errorFrame.evaluate(el => 
+        window.getComputedStyle(el).display !== 'none'
+      );
+  
+      if (isErrorVisible) {
+        throw new Error('Invalid two-factor code');
+      }
+  
+      // Wait for navigation after successful 2FA
+      await page.waitForNavigation({ 
+        timeout: 30000,
+        waitUntil: 'networkidle'
+      });
+  
+      // Check if we're still on the 2FA page
+      if (page.url().includes('twoFactor')) {
+        throw new Error('Still on 2FA page after code entry');
+      }
+  
+      // Save the final login state
+      await context.storageState({ path: "login.json" });
+      
+      // Clean up temporary login state
+      try {
+        fs.unlinkSync('temp_login.json');
+        console.log('Temporary login state cleaned up');
+      } catch (e) {
+        console.log('No temporary login state to clean up');
+      }
+      
+      return { success: true };
+  
+    } catch (error) {
+      console.error('Two-factor authentication error:', error);
+      
+      // Take error screenshot
+      await page?.screenshot({ path: 'two-factor-error.png' });
+      
+      // Get additional debug info
+      const debugInfo = {
+        url: page?.url(),
+        content: await page?.content().catch(() => 'Could not get content'),
+        error: error.message
+      };
+      
+      console.log('Debug info:', debugInfo);
+      
+      throw error;
+    } finally {
+      if (page) await page.close();
+      if (context) await context.close();
     }
   }
   
@@ -635,7 +761,7 @@ class BuyeeScraper {
       if (context) await context.close();
     }
   }
-    
+
   async refreshLoginSession() {
     console.log('Refreshing login session...');
     const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
