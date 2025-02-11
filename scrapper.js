@@ -451,13 +451,16 @@ class BuyeeScraper {
     let page;
   
     try {
-      // Only clear login.json, keep temp_login.json for 2FA
-      console.log('Clearing previous login state...');
+      // Instead of deleting both files, just clear login.json if it exists
+      // Keep temp_login.json for 2FA flow
+      console.log('Checking for existing login state...');
       try {
-        fs.unlinkSync('login.json');
-        console.log('Previous login file cleared');
+        if (fs.existsSync('login.json')) {
+          console.log('Clearing existing login.json file');
+          fs.unlinkSync('login.json');
+        }
       } catch (e) {
-        console.log('No previous login file found to clear');
+        console.log('No existing login.json file to clear');
       }
   
       // Create fresh browser context without loading any state
@@ -521,7 +524,7 @@ class BuyeeScraper {
         const pageContent = await page.content();
         console.log('2FA Page HTML:', pageContent);
         
-        // Save temporary state
+        // Save temporary state for 2FA
         await context.storageState({ path: "temp_login.json" });
         
         return { 
@@ -530,7 +533,7 @@ class BuyeeScraper {
         };
       }
   
-      // If no 2FA required, save final login state
+      // Save final login state
       await context.storageState({ path: "login.json" });
       
       return { success: true };
@@ -541,6 +544,67 @@ class BuyeeScraper {
       throw error;
     } finally {
       if (page) await page.close();
+    }
+  }
+  
+  // Modify setupBrowser to handle missing files gracefully
+  async setupBrowser() {
+    try {
+      if (!this.browser || !this.browser.isConnected()) {
+        this.browser = await chromium.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
+          ]
+        });
+      }
+      
+      let loginState;
+      
+      // Try to load either temp_login.json or login.json
+      try {
+        if (fs.existsSync('temp_login.json')) {
+          console.log('Using temporary login state');
+          loginState = JSON.parse(fs.readFileSync('temp_login.json', 'utf8'));
+        } else if (fs.existsSync('login.json')) {
+          console.log('Using full login state');
+          loginState = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+        } else {
+          console.log('No login state found, creating fresh context');
+          loginState = { cookies: [] };
+        }
+      } catch (e) {
+        console.warn('Error reading login state:', e);
+        loginState = { cookies: [] };
+      }
+      
+      // Create context with stored state
+      const context = await this.browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        locale: 'en-US',
+        timezoneId: 'Europe/Berlin',
+        acceptDownloads: true
+      });
+      
+      // Add cookies explicitly
+      if (loginState.cookies && loginState.cookies.length > 0) {
+        await context.addCookies(loginState.cookies.map(cookie => ({
+          ...cookie,
+          secure: cookie.secure || false,
+          httpOnly: cookie.httpOnly || false,
+          sameSite: cookie.sameSite || 'Lax',
+          expires: cookie.expires || (Date.now() / 1000 + 86400)
+        })));
+      }
+      
+      return { browser: this.browser, context };
+    } catch (error) {
+      console.error('Browser setup failed:', error);
+      throw error;
     }
   }
   
