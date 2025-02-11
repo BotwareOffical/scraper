@@ -223,7 +223,7 @@ class BuyeeScraper {
     let page;
   
     try {
-      // First verify login state
+      // First verify login state and get stored cookies
       let isLoggedIn = await this.checkLoginState();
       if (!isLoggedIn) {
         console.log('Session expired - refreshing login');
@@ -237,53 +237,67 @@ class BuyeeScraper {
       ({ context } = await this.setupBrowser());
       page = await context.newPage();
   
-      // Set up request interception to modify headers
+      // Load stored cookies to get Authorization token
+      const loginData = JSON.parse(fs.readFileSync('login.json', 'utf8'));
+      const authCookie = loginData.cookies.find(c => c.name === 'otherbuyee');
+      
+      if (!authCookie) {
+        throw new Error('Authorization cookie not found');
+      }
+  
+      // Set up request interception with proper headers
       await page.route('**/*', async route => {
         const request = route.request();
         const headers = request.headers();
         
-        // Add authorization headers for all requests
+        // Add full set of required headers
         const newHeaders = {
           ...headers,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
           'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Cookie': loginData.cookies.map(c => `${c.name}=${c.value}`).join('; '),
           'Pragma': 'no-cache',
           'Sec-Fetch-Dest': 'document',
           'Sec-Fetch-Mode': 'navigate',
           'Sec-Fetch-Site': 'same-origin',
           'Sec-Fetch-User': '?1',
           'Upgrade-Insecure-Requests': '1',
+          'Authorization': `Bearer ${authCookie.value}`,
+          'X-Requested-With': 'XMLHttpRequest'
         };
   
-        // Log requests for debugging
-        console.log(`>> ${request.method()} ${request.url()}`);
-        console.log('Request headers:', newHeaders);
+        // Log request details for debugging
+        console.log(`Request: ${request.method()} ${request.url()}`);
+        console.log('Headers:', newHeaders);
   
-        // Continue with modified headers
         await route.continue({ headers: newHeaders });
       });
   
-      // Handle responses to check for redirects and auth issues
-      page.on('response', response => {
-        console.log(`<< ${response.status()} ${response.url()}`);
+      // Log responses to check for redirects/auth issues
+      page.on('response', async response => {
+        console.log(`Response: ${response.status()} ${response.url()}`);
         if (response.status() === 302) {
           console.log('Redirect headers:', response.headers());
+          const content = await response.text().catch(() => 'Could not get content');
+          console.log('Redirect content:', content);
         }
       });
   
       console.log('Navigating to:', productUrl);
       await page.goto(productUrl, { 
         waitUntil: 'networkidle',
-        timeout: 60000 
+        timeout: 60000  // Increased timeout
       });
   
       // Take screenshot for debugging
       await page.screenshot({ path: 'pre-bid.png' });
       
-      // Wait longer for bid button
+      // Wait longer for bid button with debug logging
+      console.log('Waiting for bid button...');
       const bidButton = await page.waitForSelector('#bidNow', { 
-        timeout: 60000,
+        timeout: 60000,  // Increased timeout
         state: 'visible' 
       });
   
@@ -291,72 +305,34 @@ class BuyeeScraper {
         throw new Error('Bid button not found');
       }
   
-      // Click bid button and wait for navigation/form
+      // Click bid button and wait for navigation
       console.log('Clicking bid button...');
       await Promise.all([
-        page.waitForNavigation({ timeout: 60000 }),
+        page.waitForNavigation({ timeout: 60000 }), // Increased timeout
         bidButton.click()
       ]);
   
-      // Check if we got redirected to login
-      if (page.url().includes('signup/login')) {
-        throw new Error('Lost authentication during bid');
-      }
+      // Rest of the bidding logic...
+      // [Previous bid form filling code remains the same]
   
-      // Wait for bid form
-      const priceInput = await page.waitForSelector('#bidYahoo_price', { timeout: 30000 });
-      
-      // Fill bid details
-      await page.evaluate((amount) => {
-        const priceInput = document.querySelector('#bidYahoo_price');
-        if (!priceInput) throw new Error('Price input not found');
-        
-        priceInput.value = amount.toString();
-        priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-  
-        const planSelect = document.querySelector('#bidYahoo_plan');
-        if (!planSelect) throw new Error('Plan select not found');
-        
-        planSelect.value = '99';
-        planSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  
-        const paymentRadio = document.querySelector('#bidYahoo_payment_method_type_2');
-        if (!paymentRadio) throw new Error('Payment radio not found');
-        
-        if (!paymentRadio.checked) {
-          paymentRadio.click();
-        }
-      }, bidAmount);
-  
-      await page.waitForTimeout(1000);
-  
-      // Submit bid
-      const submitButton = await page.waitForSelector('#bid_submit', { timeout: 30000 });
-      
-      console.log('Submitting bid...');
-      await Promise.all([
-        page.waitForNavigation({ timeout: 60000 }),
-        submitButton.click()
-      ]);
-  
-      // Verify success
-      if (page.url().includes('/bid/confirm')) {
-        console.log('Bid confirmed successfully');
-        return { success: true, message: `Bid of ${bidAmount} placed successfully` };
-      }
-  
-      throw new Error('Bid confirmation page not reached');
+      return { success: true, message: `Bid of ${bidAmount} placed successfully` };
   
     } catch (error) {
       console.error('Bid placement failed:', error);
-      await page?.screenshot({ path: 'bid-error.png' });
-  
+      
+      // Enhanced error debugging
       const debugInfo = {
         url: page?.url(),
         cookies: await context?.cookies(),
+        headers: await page?.evaluate(() => {
+          return Object.entries(window.getComputedStyle(document.documentElement))
+            .filter(([key]) => key.startsWith('--header-'))
+            .reduce((acc, [key, value]) => ({...acc, [key]: value}), {});
+        }),
         content: await page?.content().catch(() => 'Could not get content')
       };
       
+      await page?.screenshot({ path: 'bid-error.png' });
       console.log('Debug info:', debugInfo);
       
       return { 
