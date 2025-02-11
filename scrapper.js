@@ -559,90 +559,83 @@ class BuyeeScraper {
         timeout: 60000
       });
   
-      // Debug: Print current URL and page text content
-      console.log('Current URL:', page.url());
-      const pageText = await page.evaluate(() => {
-        // Remove scripts and styles before getting text
-        const clone = document.cloneNode(true);
-        const scripts = clone.getElementsByTagName('script');
-        const styles = clone.getElementsByTagName('style');
-        while (scripts.length > 0) scripts[0].remove();
-        while (styles.length > 0) styles[0].remove();
-        return document.body.innerText;
+      // Debug: Take screenshot before filling code
+      await page.screenshot({ path: '2fa-before.png' });
+  
+      // Split the 6-digit code into individual digits
+      const digits = twoFactorCode.toString().split('');
+      
+      if (digits.length !== 6) {
+        throw new Error('Two-factor code must be exactly 6 digits');
+      }
+  
+      // Fill each digit into its corresponding input box
+      for (let i = 1; i <= 6; i++) {
+        const inputSelector = `#input${i}`;
+        await page.waitForSelector(inputSelector, { timeout: 5000 });
+        
+        // Clear the input first
+        await page.$eval(inputSelector, el => el.value = '');
+        
+        // Type the digit
+        await page.type(inputSelector, digits[i-1], { delay: 100 });
+      }
+  
+      // Debug: Take screenshot after filling code
+      await page.screenshot({ path: '2fa-after.png' });
+  
+      // Wait for any validation to complete
+      await page.waitForTimeout(1000);
+  
+      // Check for error message
+      const errorFrame = await page.$('#error-frame');
+      const isErrorVisible = await errorFrame.evaluate(el => 
+        window.getComputedStyle(el).display !== 'none'
+      );
+  
+      if (isErrorVisible) {
+        throw new Error('Invalid two-factor code');
+      }
+  
+      // Wait for navigation after successful 2FA
+      // The page should automatically submit once all 6 digits are entered correctly
+      await page.waitForNavigation({ 
+        timeout: 30000,
+        waitUntil: 'networkidle'
       });
-      console.log('Page Text Content:', pageText);
   
-      // Take screenshot for debugging
-      await page.screenshot({ path: '2fa-page.png' });
-  
-      // Debug: List all input fields
-      const inputs = await page.$$eval('input', inputs => 
-        inputs.map(input => ({
-          id: input.id,
-          type: input.type,
-          name: input.name,
-          placeholder: input.placeholder
-        }))
-      );
-      console.log('Found input fields:', inputs);
-  
-      // Debug: List all buttons
-      const buttons = await page.$$eval('button', buttons => 
-        buttons.map(button => ({
-          text: button.textContent?.trim(),
-          type: button.type,
-          id: button.id
-        }))
-      );
-      console.log('Found buttons:', buttons);
-  
-      // Get page title and headers for context
-      const pageHeadings = await page.$$eval('h1, h2, h3', headings => 
-        headings.map(h => h.textContent?.trim())
-      );
-      console.log('Page headings:', pageHeadings);
-  
-      // Try to fill in the code
-      console.log('Attempting to fill 2FA code...');
-      const codeInput = await page.$('input[type="text"]');
-      if (codeInput) {
-        await codeInput.fill(twoFactorCode);
-        console.log('Code filled successfully');
-      } else {
-        console.log('Could not find code input field');
-      }
-  
-      // Try to submit
-      console.log('Looking for submit button...');
-      const submitButton = await page.$('button[type="submit"]');
-      if (submitButton) {
-        await submitButton.click();
-        console.log('Submit button clicked');
-      } else {
-        console.log('Could not find submit button');
-      }
-  
-      // Wait for navigation and check result
-      await page.waitForNavigation({ timeout: 60000 });
-      console.log('Final URL:', page.url());
-  
-      if (page.url().includes('signup/twoFactor')) {
-        throw new Error('Still on 2FA page - verification likely failed');
+      // Check if we're still on the 2FA page
+      if (page.url().includes('twoFactor')) {
+        throw new Error('Still on 2FA page after code entry');
       }
   
       // Save the final login state
       await context.storageState({ path: "login.json" });
+      
       return { success: true };
   
     } catch (error) {
       console.error('Two-factor authentication error:', error);
+      
+      // Take error screenshot
       await page?.screenshot({ path: 'two-factor-error.png' });
+      
+      // Get additional debug info
+      const debugInfo = {
+        url: page?.url(),
+        content: await page?.content().catch(() => 'Could not get content'),
+        error: error.message
+      };
+      
+      console.log('Debug info:', debugInfo);
+      
       throw error;
     } finally {
       if (page) await page.close();
+      if (context) await context.close();
     }
   }
-  
+    
   async refreshLoginSession() {
     console.log('Refreshing login session...');
     const loginResult = await this.login('teege@machen-sachen.com', '&7.s!M47&zprEv.');
