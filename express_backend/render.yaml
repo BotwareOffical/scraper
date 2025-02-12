@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: express-backend
-    env: docker
-    dockerfilePath: ./Dockerfile
-    envVars:
-      - key: PORT
-        value: 10000
