@@ -1,0 +1,4 @@
+__pycache__/ Remove everything from Gits index
+git rm -r --cached .
+
+# Re-add everything except whats in .gitignore

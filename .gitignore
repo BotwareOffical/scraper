@@ -1,0 +1,25 @@
+# Python
+venv/
+venv/*
+**/venv/
+__pycache__/
+*.py[cod]
+*.class
+site-packages/
+*.so
+
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+Thumbs.db
